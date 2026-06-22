@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dataviz-prod 운영 대시보드</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page">
+
+    <!-- 상단 헤더 -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1>dataviz-prod 운영 대시보드</h1>
+      </div>
+      <div class="topbar-right">
+        <span class="last-update">마지막 갱신 <span id="meta-last-ok">—</span></span>
+      </div>
+    </header>
+
+    <!-- 수집 실패 경고 배너(meta.stale=true 일 때만 표시) -->
+    <div id="stale-banner" class="stale-banner" hidden></div>
+
+    <!-- 4패널 그리드(2×2) -->
+    <main class="grid">
+
+      <!-- 패널 1: 알람 -->
+      <section class="card" id="panel-alarms">
+        <div class="card-head">
+          <h2>알람</h2>
+          <span class="card-meta" id="alarms-summary"></span>
+        </div>
+        <div class="card-body">
+          <div class="state-loading" data-state="loading">
+            <div class="spinner"></div><span>로딩 중…</span>
+          </div>
+          <div class="state-empty" data-state="empty" hidden>
+            데이터 없음 — 수집기가 아직 실행되지 않았거나 수집 중입니다
+          </div>
+          <div class="state-error" data-state="error" hidden></div>
+          <div class="state-ok" data-state="ok" hidden>
+            <ul class="alarm-list" id="alarm-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- 패널 2: 가동률·응답시간 -->
+      <section class="card" id="panel-uptime">
+        <div class="card-head">
+          <h2>가동률·응답시간</h2>
+          <div class="period-btns" data-period-group="uptime">
+            <button type="button" data-period="1">1일</button>
+            <button type="button" data-period="7" class="active">7일</button>
+            <button type="button" data-period="30">30일</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="state-loading" data-state="loading">
+            <div class="spinner"></div><span>로딩 중…</span>
+          </div>
+          <div class="state-empty" data-state="empty" hidden>
+            데이터 없음 — 수집기가 아직 실행되지 않았거나 수집 중입니다
+          </div>
+          <div class="state-error" data-state="error" hidden></div>
+          <div class="state-ok" data-state="ok" hidden>
+            <div class="kpi-row" id="uptime-summary"></div>
+            <div class="chart-wrap"><canvas id="uptime-pct-chart"></canvas></div>
+            <div class="chart-wrap"><canvas id="uptime-ms-chart"></canvas></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 패널 3: 트래픽·사용자 -->
+      <section class="card" id="panel-traffic">
+        <div class="card-head">
+          <h2>트래픽·사용자</h2>
+          <div class="period-btns" data-period-group="traffic">
+            <button type="button" data-period="1">1일</button>
+            <button type="button" data-period="7" class="active">7일</button>
+            <button type="button" data-period="30">30일</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="state-loading" data-state="loading">
+            <div class="spinner"></div><span>로딩 중…</span>
+          </div>
+          <div class="state-empty" data-state="empty" hidden>
+            데이터 없음 — 수집기가 아직 실행되지 않았거나 수집 중입니다
+          </div>
+          <div class="state-error" data-state="error" hidden></div>
+          <div class="state-ok" data-state="ok" hidden>
+            <div class="kpi-row" id="traffic-summary"></div>
+            <div class="chart-wrap chart-bar"><canvas id="traffic-topep-chart"></canvas></div>
+            <div class="chart-wrap"><canvas id="traffic-hourly-chart"></canvas></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 패널 4: 응답품질·DB -->
+      <section class="card" id="panel-quality">
+        <div class="card-head">
+          <h2>응답품질·DB</h2>
+          <div class="period-btns" data-period-group="traffic">
+            <button type="button" data-period="1">1일</button>
+            <button type="button" data-period="7" class="active">7일</button>
+            <button type="button" data-period="30">30일</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <!-- 품질(상태코드/에러) -->
+          <div class="subsection">
+            <div class="state-loading" data-state="loading">
+              <div class="spinner"></div><span>로딩 중…</span>
+            </div>
+            <div class="state-empty" data-state="empty" hidden>
+              데이터 없음 — 수집기가 아직 실행되지 않았거나 수집 중입니다
+            </div>
+            <div class="state-error" data-state="error" hidden></div>
+            <div class="state-ok" data-state="ok" hidden>
+              <div class="quality-grid">
+                <div class="chart-wrap chart-donut"><canvas id="quality-buckets-chart"></canvas></div>
+                <div class="top-err">
+                  <h3>에러 Top</h3>
+                  <ul class="err-list" id="top-err-list"></ul>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- DB(별도 격리: /api/db) -->
+          <div class="subsection" id="subsection-db">
+            <h3>DB (RDS)</h3>
+            <div class="state-loading" data-state="loading">
+              <div class="spinner"></div><span>로딩 중…</span>
+            </div>
+            <div class="state-empty" data-state="empty" hidden>
+              데이터 없음 — 수집기가 아직 실행되지 않았거나 수집 중입니다
+            </div>
+            <div class="state-error" data-state="error" hidden></div>
+            <div class="state-ok" data-state="ok" hidden>
+              <div class="kpi-row kpi-db" id="db-kpis"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- 채팅 패널: 전체폭 카드 -->
+    <section class="card chat-card" id="panel-chat">
+      <div class="card-head">
+        <h2>운영 봇에게 질문</h2>
+        <span class="card-meta">SQLite 캐시 기반 Q&amp;A</span>
+      </div>
+      <div class="card-body chat-body">
+        <div class="chat-messages" id="chat-messages" aria-live="polite">
+          <div class="chat-msg bot">
+            <div class="chat-bubble">안녕하세요. 운영 현황에 대해 무엇이든 물어보세요.</div>
+          </div>
+        </div>
+        <form class="chat-input-row" id="chat-form" autocomplete="off">
+          <input
+            type="text"
+            class="chat-input"
+            id="chat-input"
+            maxlength="1000"
+            placeholder="예: 지금 알람 상태 어때? / 이번주 많이 쓴 API는?"
+            aria-label="질문 입력">
+          <button type="submit" class="chat-send" id="chat-send">전송</button>
+        </form>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Chart.js 로컬 번들(같은 디렉토리, 오케스트레이터가 별도 조달) -->
+  <script src="chart.umd.min.js"></script>
+  <script src="dashboard.js"></script>
+</body>
+</html>
