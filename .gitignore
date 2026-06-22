@@ -1,0 +1,32 @@
+# ── Secrets / credentials (절대 커밋 금지) ──
+.env
+*.env
+*-sa.json
+google-chat-sa.json
+credentials.json
+*.pem
+*.key
+*.p12
+
+# ── Python ──
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# ── Runtime state / data (런타임 생성물) ──
+uptime_state.json
+uptime_log.csv
+bash.exe.stackdump
+
+# ── Tooling / session artifacts ──
+.omc/
+.claude/settings.local.json
+.dev/
+
+# ── OS ──
+Thumbs.db
+.DS_Store
+desktop.ini
