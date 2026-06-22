@@ -12,12 +12,17 @@ load_env()
 REGION = "ap-northeast-2"
 LG = "/aws/elasticbeanstalk/dataviz-prod/var/log/nginx/access.log"
 DBID = "gseed-db"
+# EC2 호스트 메트릭용 인스턴스 id(service_probe.py 참조). DescribeInstances 권한이
+# 없을 수 있어 수집기는 list_metrics 로 자동 발견하고, 실패 시 이 기본값을 쓴다.
+EC2_INSTANCE_ID = os.environ.get("EC2_INSTANCE_ID", "i-0e3e7120bc0b07a2d")
 
 # ── 수집 주기(초) ─────────────────────────────────────────────────────
 ALARM_INTERVAL = 300
 UPTIME_INTERVAL = 300
 TRAFFIC_INTERVAL = 600
 DB_INTERVAL = 600
+HOST_INTERVAL = 600
+CDN_INTERVAL = 600
 
 # ── 보관(purge) 정책 ──────────────────────────────────────────────────
 RETENTION_DAYS = 30

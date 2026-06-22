@@ -34,7 +34,8 @@ def init_db():
           state TEXT NOT NULL,
           state_reason TEXT,
           state_updated INTEGER,
-          collected_at INTEGER NOT NULL);
+          collected_at INTEGER NOT NULL,
+          detail_json TEXT);
 
         CREATE TABLE IF NOT EXISTS alarm_history (
           alarm_name TEXT NOT NULL,
@@ -61,6 +62,16 @@ def init_db():
           payload_json TEXT NOT NULL,
           collected_at INTEGER NOT NULL);
 
+        CREATE TABLE IF NOT EXISTS host_snapshot (
+          id INTEGER PRIMARY KEY CHECK (id=1),
+          payload_json TEXT NOT NULL,
+          collected_at INTEGER NOT NULL);
+
+        CREATE TABLE IF NOT EXISTS cdn_snapshot (
+          id INTEGER PRIMARY KEY CHECK (id=1),
+          payload_json TEXT NOT NULL,
+          collected_at INTEGER NOT NULL);
+
         CREATE TABLE IF NOT EXISTS collect_meta (
           job TEXT PRIMARY KEY,
           last_ok_at INTEGER,
@@ -68,6 +79,12 @@ def init_db():
           last_status TEXT,
           last_error TEXT);
         """)
+        # 마이그레이션: 기존 named volume 의 alarm_state 에 detail_json 이 없으면 추가.
+        # 새 DB 는 위 CREATE 에 이미 포함되므로 이 ALTER 는 "이미 있음" 에러로 무시된다.
+        try:
+            conn.execute("ALTER TABLE alarm_state ADD COLUMN detail_json TEXT")
+        except sqlite3.OperationalError:
+            pass  # duplicate column name → 이미 존재(정상)
         conn.commit()
     finally:
         conn.close()
@@ -76,21 +93,24 @@ def init_db():
 # ── 알람(스냅샷 + 이력) ───────────────────────────────────────────────
 def upsert_alarm_state(rows):
     """알람 상태 스냅샷을 교체 upsert 한다.
-    rows: [{alarm_name, state, state_reason, state_updated, collected_at}]"""
+    rows: [{alarm_name, state, state_reason, state_updated, collected_at, detail_json}]
+    detail_json 은 선택(없으면 None 으로 저장)."""
     if not rows:
         return
     conn = connect()
     try:
         conn.executemany("""
             INSERT INTO alarm_state
-              (alarm_name, state, state_reason, state_updated, collected_at)
+              (alarm_name, state, state_reason, state_updated, collected_at, detail_json)
             VALUES
-              (:alarm_name, :state, :state_reason, :state_updated, :collected_at)
+              (:alarm_name, :state, :state_reason, :state_updated, :collected_at,
+               :detail_json)
             ON CONFLICT(alarm_name) DO UPDATE SET
               state=excluded.state,
               state_reason=excluded.state_reason,
               state_updated=excluded.state_updated,
-              collected_at=excluded.collected_at
+              collected_at=excluded.collected_at,
+              detail_json=excluded.detail_json
         """, rows)
         conn.commit()
     finally:
@@ -167,6 +187,38 @@ def replace_db_snapshot(payload_json, at):
         conn.close()
 
 
+def replace_host_snapshot(payload_json, at):
+    """EC2 호스트 스냅샷(id=1 단일행)을 교체한다(db_snapshot 과 동일 패턴)."""
+    conn = connect()
+    try:
+        conn.execute("""
+            INSERT INTO host_snapshot (id, payload_json, collected_at)
+            VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              payload_json=excluded.payload_json,
+              collected_at=excluded.collected_at
+        """, (payload_json, at))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def replace_cdn_snapshot(payload_json, at):
+    """CloudFront CDN 스냅샷(id=1 단일행)을 교체한다(host_snapshot 과 동일 패턴)."""
+    conn = connect()
+    try:
+        conn.execute("""
+            INSERT INTO cdn_snapshot (id, payload_json, collected_at)
+            VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              payload_json=excluded.payload_json,
+              collected_at=excluded.collected_at
+        """, (payload_json, at))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # ── 수집 메타(잡별 상태) ──────────────────────────────────────────────
 def set_collect_meta(job, ok, error=None, at=None):
     """잡 실행 결과를 기록한다. last_run_at 은 항상, last_ok_at 은 ok 일 때만 갱신."""
@@ -212,7 +264,8 @@ def get_alarms():
     conn = connect()
     try:
         cur = conn.execute("""
-            SELECT alarm_name, state, state_reason, state_updated, collected_at
+            SELECT alarm_name, state, state_reason, state_updated, collected_at,
+                   detail_json
             FROM alarm_state
             ORDER BY (state='ALARM') DESC, alarm_name ASC
         """)
@@ -276,6 +329,38 @@ def get_db():
     try:
         cur = conn.execute("""
             SELECT payload_json, collected_at FROM db_snapshot WHERE id = 1
+        """)
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return {"payload": json.loads(row["payload_json"]),
+                "collected_at": row["collected_at"]}
+    finally:
+        conn.close()
+
+
+def get_host():
+    """EC2 호스트 스냅샷(id=1)을 {payload, collected_at} 로 반환. 없으면 None."""
+    conn = connect()
+    try:
+        cur = conn.execute("""
+            SELECT payload_json, collected_at FROM host_snapshot WHERE id = 1
+        """)
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return {"payload": json.loads(row["payload_json"]),
+                "collected_at": row["collected_at"]}
+    finally:
+        conn.close()
+
+
+def get_cdn():
+    """CloudFront CDN 스냅샷(id=1)을 {payload, collected_at} 로 반환. 없으면 None."""
+    conn = connect()
+    try:
+        cur = conn.execute("""
+            SELECT payload_json, collected_at FROM cdn_snapshot WHERE id = 1
         """)
         row = cur.fetchone()
         if row is None:

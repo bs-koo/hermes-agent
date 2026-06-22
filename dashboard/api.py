@@ -11,6 +11,7 @@ AWS 수집은 백그라운드 Scheduler 데몬이 전담한다.
   uvicorn dashboard.api:app --host 0.0.0.0 --port 8080 --workers 1
 """
 import os
+import json
 import time
 from contextlib import asynccontextmanager
 
@@ -18,7 +19,7 @@ from fastapi import FastAPI, Query
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from dashboard import config, storage, chat
+from dashboard import config, storage, chat, insights
 from dashboard.scheduler import Scheduler
 
 _scheduler = Scheduler()
@@ -37,7 +38,22 @@ _JOB_INTERVALS = {
     "uptime": config.UPTIME_INTERVAL,
     "traffic": config.TRAFFIC_INTERVAL,
     "db": config.DB_INTERVAL,
+    "host": config.HOST_INTERVAL,
+    "cdn": config.CDN_INTERVAL,
 }
+
+
+def _series(raw):
+    """시계열 [(epoch, val)] 또는 [[epoch, val]] 를 [{t, v}] 로 변환.
+    JSON 직렬화/역직렬화를 거치면 튜플이 리스트가 되므로 둘 다 수용한다."""
+    out = []
+    for item in (raw or []):
+        try:
+            t, v = item[0], item[1]
+        except (TypeError, IndexError, KeyError):
+            continue
+        out.append({"t": t, "v": v})
+    return out
 
 
 @asynccontextmanager
@@ -53,19 +69,94 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="dataviz-prod 운영 대시보드", lifespan=lifespan)
 
 
+@app.middleware("http")
+async def _no_cache_static(request, call_next):
+    # 앱 자산(html/dashboard.js/styles.css)은 no-store 로 캐시 자체를 차단해
+    # 변경 후 항상 최신을 받게 한다. 벤더 번들(chart.umd.min.js)은 캐시 허용(불변).
+    resp = await call_next(request)
+    p = request.url.path
+    if p == "/" or (p.endswith((".js", ".css", ".html")) and not p.endswith("chart.umd.min.js")):
+        resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 # ── 패널 1: 알람 ──────────────────────────────────────────────────────
-@app.get("/api/alarms")
-def api_alarms():
-    rows = storage.get_alarms()
-    if not rows:
-        return {"empty": True}
-    items = [{
+# CloudWatch ComparisonOperator → 사람친화 기호
+_CMP_SYMBOL = {
+    "GreaterThanThreshold": ">",
+    "GreaterThanOrEqualToThreshold": ">=",
+    "LessThanThreshold": "<",
+    "LessThanOrEqualToThreshold": "<=",
+    "LessThanLowerOrGreaterThanUpperThreshold": "<lower or >upper",
+    "GreaterThanUpperThreshold": "> upper",
+    "LessThanLowerThreshold": "< lower",
+}
+
+
+def _build_alarm_item(r):
+    """alarm_state 행을 API 아이템으로 변환한다. detail_json 을 파싱해 평탄화하고
+    comparison 기호와 condition 조립 문자열을 만든다. detail 없으면 추가 필드 None."""
+    item = {
         "name": r["alarm_name"],
         "state": r["state"],
         "state_updated": r["state_updated"],
         "last_transition": r["state_updated"],
         "reason": r["state_reason"],
-    } for r in rows]
+        "description": None,
+        "metric": None,
+        "statistic": None,
+        "period": None,
+        "comparison": None,
+        "threshold": None,
+        "condition": None,
+    }
+    detail = None
+    raw = r.get("detail_json")
+    if raw:
+        try:
+            detail = json.loads(raw)
+        except (TypeError, ValueError):
+            detail = None
+    if not detail:
+        return item
+
+    metric = detail.get("metric")
+    statistic = detail.get("statistic")
+    period = detail.get("period")
+    comparison_raw = detail.get("comparison")
+    comparison = _CMP_SYMBOL.get(comparison_raw, comparison_raw)
+    threshold = detail.get("threshold")
+
+    item.update({
+        "description": detail.get("description"),
+        "metric": metric,
+        "statistic": statistic,
+        "period": period,
+        "comparison": comparison,
+        "threshold": threshold,
+        "reason": detail.get("reason") or item["reason"],
+    })
+
+    # condition 조립: "metric cmp threshold (statistic, period s)"
+    if metric and comparison is not None and threshold is not None:
+        cond = f"{metric} {comparison} {threshold}"
+        extras = []
+        if statistic:
+            extras.append(str(statistic))
+        if period:
+            extras.append(f"{period}s")
+        if extras:
+            cond += f" ({', '.join(extras)})"
+        item["condition"] = cond
+    return item
+
+
+@app.get("/api/alarms")
+def api_alarms():
+    rows = storage.get_alarms()
+    if not rows:
+        return {"empty": True}
+    items = [_build_alarm_item(r) for r in rows]
     n_alarm = sum(1 for r in rows if r["state"] == "ALARM")
     return {
         "empty": False,
@@ -133,6 +224,8 @@ def api_traffic(period: int = Query(7)):
         "n_users": p.get("n_users", 0),
         "total": p.get("total", 0),
         "scanner_hits": p.get("scanner_hits", 0),
+        "health_hits": p.get("health_hits", 0),
+        "total_all": p.get("total_all", p.get("total", 0)),
         "hourly": p.get("hourly", []),
     }
 
@@ -152,16 +245,109 @@ def api_quality(period: int = Query(7)):
     }
 
 
-# ── 패널 4: DB ────────────────────────────────────────────────────────
+# ── 패널 4: DB(계정 전체 RDS 인스턴스) ───────────────────────────────
+_DB_SERIES_KEYS = ("cpu_series", "mem_series", "dbload_series", "conn_series")
+
+
 @app.get("/api/db")
 def api_db():
     snap = storage.get_db()
     if snap is None:
         return {"empty": True}
     p = snap["payload"]
-    out = {"empty": False}
-    out.update(p)
-    return out
+    raw_instances = p.get("instances") or []
+    if not raw_instances:
+        return {"empty": True}
+    instances = []
+    for it in raw_instances:
+        # 요약(기존 10항목 + 추가 mem_free/swap/iops/dbload_cpu 등 + db_id)은 그대로,
+        # 시계열 4종만 [{t,v}] 로 변환(프론트 차트 일관).
+        d = {k: v for k, v in it.items() if k not in _DB_SERIES_KEYS}
+        for sk in _DB_SERIES_KEYS:
+            d[sk] = _series(it.get(sk))
+        instances.append(d)
+    return {
+        "empty": False,
+        "instances": instances,
+        "primary_db_id": p.get("primary_db_id"),
+        "collected_at": p.get("collected_at", snap.get("collected_at")),
+    }
+
+
+# ── 패널: EC2 호스트(계정 전체 인스턴스) ─────────────────────────────
+@app.get("/api/host")
+def api_host():
+    snap = storage.get_host()
+    if snap is None:
+        return {"empty": True}
+    p = snap["payload"]
+    raw_instances = p.get("instances") or []
+    if not raw_instances:
+        return {"empty": True}
+    instances = [{
+        "instance_id": it.get("instance_id"),
+        # 메타(describe_instances 권한 없으면 None — instance_id 만 유지, 회귀 없음)
+        "private_ip": it.get("private_ip"),
+        "instance_name": it.get("instance_name"),
+        "instance_type": it.get("instance_type"),
+        "state": it.get("state"),
+        "cpu_avg": it.get("cpu_avg"),
+        "cpu_max": it.get("cpu_max"),
+        "net_in": it.get("net_in"),
+        "net_out": it.get("net_out"),
+        "ebs_read": it.get("ebs_read"),
+        "ebs_write": it.get("ebs_write"),
+        "credit_min": it.get("credit_min"),
+        "status_failed": it.get("status_failed"),
+        "cpu_series": _series(it.get("cpu_series")),        # 클릭 상세용 시계열 3종
+        "net_in_series": _series(it.get("net_in_series")),
+        "net_out_series": _series(it.get("net_out_series")),
+    } for it in raw_instances]
+    return {
+        "empty": False,
+        "instances": instances,
+        "primary_instance_id": p.get("primary_instance_id"),
+        "collected_at": p.get("collected_at", snap.get("collected_at")),
+    }
+
+
+# ── 패널: CloudFront CDN(계정 전체 배포) ─────────────────────────────
+@app.get("/api/cdn")
+def api_cdn():
+    snap = storage.get_cdn()
+    if snap is None:
+        return {"empty": True}
+    p = snap["payload"]
+    raw_dists = p.get("distributions") or []
+    if not raw_dists:
+        return {"empty": True}
+    distributions = [{
+        "dist_id": d.get("dist_id"),
+        "requests": d.get("requests"),
+        "bytes_down": d.get("bytes_down"),  # bytes 원단위(프론트 변환)
+        "bytes_up": d.get("bytes_up"),
+        "err_4xx": d.get("err_4xx"),        # % 값
+        "err_5xx": d.get("err_5xx"),
+        "err_total": d.get("err_total"),
+        "requests_series": _series(d.get("requests_series")),
+        "err_total_series": _series(d.get("err_total_series")),
+    } for d in raw_dists]
+    return {
+        "empty": False,
+        "distributions": distributions,
+        "collected_at": p.get("collected_at", snap.get("collected_at")),
+    }
+
+
+# ── 인사이트: 룰 탐지 findings + AI 종합 코멘트 ───────────────────────
+@app.get("/api/insights")
+def api_insights():
+    data = insights.build_insights()
+    try:
+        data["ai_comment"] = chat.insight_comment(data["findings"], data["summary"])
+    except Exception:  # noqa: BLE001 — AI 실패는 인사이트(룰) 표시를 막지 않음
+        data["ai_comment"] = None
+    return data
 
 
 # ── 상단: 수집 메타(stale 배너) ──────────────────────────────────────

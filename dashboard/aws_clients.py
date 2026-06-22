@@ -7,6 +7,8 @@ import boto3
 from dashboard import config
 
 _cw = None
+_cwe = None
+_ec2 = None
 _logs = None
 
 
@@ -16,6 +18,24 @@ def cw():
     if _cw is None:
         _cw = boto3.client("cloudwatch", region_name=config.REGION)
     return _cw
+
+
+def ec2():
+    """EC2 클라이언트(ap-northeast-2) — 인스턴스 메타(IP/이름/타입) 조회용.
+    describe_instances 권한이 없을 수 있으므로 호출측에서 graceful 처리한다."""
+    global _ec2
+    if _ec2 is None:
+        _ec2 = boto3.client("ec2", region_name=config.REGION)
+    return _ec2
+
+
+def cwe():
+    """CloudWatch 클라이언트(us-east-1) — CloudFront 글로벌 메트릭 전용.
+    CloudFront 메트릭은 AWS/CloudFront 네임스페이스로 us-east-1 에만 존재한다."""
+    global _cwe
+    if _cwe is None:
+        _cwe = boto3.client("cloudwatch", region_name="us-east-1")
+    return _cwe
 
 
 def logs():

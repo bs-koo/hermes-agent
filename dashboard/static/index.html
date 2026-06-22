@@ -7,109 +7,209 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div class="page">
+  <div class="shell">
 
-    <!-- 상단 헤더 -->
-    <header class="topbar">
-      <div class="topbar-left">
-        <h1>dataviz-prod 운영 대시보드</h1>
+    <!-- ══ 좌측 사이드바 네비 ══ -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-logo">
+        <span class="logo-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="17" height="17"><path fill="currentColor" d="M3 4h18a1 1 0 011 1v11a1 1 0 01-1 1h-7v2h3v2H7v-2h3v-2H3a1 1 0 01-1-1V5a1 1 0 011-1zm1 2v9h16V6H4zm2.5 6.5l2.8-3.2 2.2 2.4 2.6-3.1 3.4 4H6.5z"/></svg>
+        </span>
+        <div class="logo-text">
+          <span class="logo-title">dataviz-prod</span>
+          <span class="logo-sub">AWS ap-northeast-2</span>
+        </div>
       </div>
-      <div class="topbar-right">
-        <span class="last-update">마지막 갱신 <span id="meta-last-ok">—</span></span>
+
+      <nav class="nav" id="nav">
+        <div class="nav-group">
+          <div class="nav-label">OVERVIEW</div>
+          <a class="nav-item" href="#/dashboard" data-route="dashboard">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 3h8v8H3V3zm10 0h8v5h-8V3zM3 13h8v8H3v-8zm10 3h8v5h-8v-5z"/></svg>
+            </span>Dashboard
+          </a>
+          <a class="nav-item" href="#/insights" data-route="insights">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2a7 7 0 00-4 12.7V17a1 1 0 001 1h6a1 1 0 001-1v-2.3A7 7 0 0012 2zm-2 19a1 1 0 001 1h2a1 1 0 001-1v-1h-4v1z"/></svg>
+            </span>인사이트
+          </a>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">MONITORING</div>
+          <a class="nav-item" href="#/alarms" data-route="alarms">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2a6 6 0 00-6 6v3.6L4.3 15a1 1 0 00.9 1.4h13.6a1 1 0 00.9-1.4L18 11.6V8a6 6 0 00-6-6zm0 20a2.5 2.5 0 002.45-2h-4.9A2.5 2.5 0 0012 22z"/></svg>
+            </span>알람
+          </a>
+          <a class="nav-item" href="#/uptime" data-route="uptime">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M3 12h4l2.5 7 5-14L17 12h4"/></svg>
+            </span>가동률·응답시간
+          </a>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">TRAFFIC</div>
+          <a class="nav-item" href="#/traffic" data-route="traffic">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M9 11a4 4 0 100-8 4 4 0 000 8zm0 2c-3.3 0-6 1.8-6 4v2h9.2A6 6 0 0112 17c0-1.5.6-2.9 1.5-4-.6-.1-1.3-.1-2-.1H9zm8.5-1a3 3 0 100-6 3 3 0 000 6zm.5 2c-2.5 0-4.5 1.4-4.5 3.2V20H22v-2.8c0-1.8-2-3.2-4-3.2z"/></svg>
+            </span>트래픽·사용자
+          </a>
+          <a class="nav-item" href="#/quality" data-route="quality">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2l8 3v6c0 5-3.4 9.3-8 11-4.6-1.7-8-6-8-11V5l8-3zm-1 13.4l5-5-1.4-1.4L11 12.6 9.4 11 8 12.4l3 3z"/></svg>
+            </span>응답품질
+          </a>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">INFRA</div>
+          <a class="nav-item" href="#/host" data-route="host">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M4 4h16a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1zm0 9h16a1 1 0 011 1v5a1 1 0 01-1 1H4a1 1 0 01-1-1v-5a1 1 0 011-1zm2 2v3h2v-3H6zm0-9v3h2V6H6zm10 9.5a1 1 0 100 2 1 1 0 000-2zm0-9a1 1 0 100 2 1 1 0 000-2z"/></svg>
+            </span>EC2 인스턴스
+          </a>
+          <a class="nav-item" href="#/cdn" data-route="cdn">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2a10 10 0 100 20 10 10 0 000-20zm6.9 6h-2.9a15.7 15.7 0 00-1.2-3.5A8 8 0 0118.9 8zM12 4c.8 1.1 1.5 2.5 1.9 4h-3.8c.4-1.5 1.1-2.9 1.9-4zM4.3 14a8 8 0 010-4h3.3a17 17 0 000 4H4.3zm.8 2h2.9c.3 1.3.7 2.5 1.2 3.5A8 8 0 015.1 16zM8 8H5.1a8 8 0 014.1-3.5C8.7 5.5 8.3 6.7 8 8zm4 12c-.8-1.1-1.5-2.5-1.9-4h3.8c-.4 1.5-1.1 2.9-1.9 4zm2.3-6H9.7a14.6 14.6 0 010-4h4.6a14.6 14.6 0 010 4zm.6 5.5c.5-1 .9-2.2 1.2-3.5h2.9a8 8 0 01-4.1 3.5zM16.4 14a17 17 0 000-4h3.3a8 8 0 010 4h-3.3z"/></svg>
+            </span>CDN
+          </a>
+          <a class="nav-item" href="#/database" data-route="database">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2c-4.4 0-8 1.3-8 3v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5c0-1.7-3.6-3-8-3zm6 17c0 .5-2.4 1.5-6 1.5S6 19.5 6 19v-2.6c1.5.7 3.7 1.1 6 1.1s4.5-.4 6-1.1V19zm0-5c0 .5-2.4 1.5-6 1.5S6 14.5 6 14v-2.6c1.5.7 3.7 1.1 6 1.1s4.5-.4 6-1.1V14zm-6-4.5C8.4 9.5 6 8.5 6 8s2.4-1.5 6-1.5S18 7.5 18 8s-2.4 1.5-6 1.5z"/></svg>
+            </span>DB 성능
+          </a>
+        </div>
+      </nav>
+
+      <div class="sidebar-profile">
+        <span class="profile-avatar" aria-hidden="true">HC</span>
+        <div class="profile-text">
+          <span class="profile-name">hermes-cloudwatch-ro</span>
+          <span class="profile-sub">062364668115 · ap-northeast-2</span>
+        </div>
       </div>
-    </header>
+    </aside>
 
-    <!-- 수집 실패 경고 배너(meta.stale=true 일 때만 표시) -->
-    <div id="stale-banner" class="stale-banner" hidden></div>
+    <!-- ══ 중앙 메인 ══ -->
+    <main class="main" id="main">
 
-    <!-- 4패널 그리드(2×2) -->
-    <main class="grid">
+      <!-- 상단 헤더(모든 뷰 공통) -->
+      <header class="topbar">
+        <div class="topbar-left">
+          <span class="topbar-eyebrow" id="view-eyebrow">Dashboard</span>
+          <h1 class="topbar-title" id="view-title">dataviz-prod</h1>
+        </div>
+        <div class="topbar-right">
+          <span class="status-pill" id="status-pill">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span class="status-text" id="status-text">—</span>
+          </span>
+          <button type="button" class="icon-btn" id="refresh-btn" aria-label="새로고침" title="새로고침">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M17.65 6.35A8 8 0 105.5 16.93l1.4-1.43A6 6 0 1116 7.99H13v2h6V4h-2v2.35z"/></svg>
+          </button>
+          <span class="last-update">마지막 갱신 <span id="meta-last-ok">—</span></span>
+        </div>
+      </header>
 
-      <!-- 패널 1: 알람 -->
-      <section class="card" id="panel-alarms">
-        <div class="card-head">
-          <h2>알람</h2>
-          <span class="card-meta" id="alarms-summary"></span>
-        </div>
-        <div class="card-body">
-          <div class="state-loading" data-state="loading">
-            <div class="spinner"></div><span>로딩 중…</span>
-          </div>
-          <div class="state-empty" data-state="empty" hidden>
-            데이터 없음 — 수집기가 아직 실행되지 않았거나 수집 중입니다
-          </div>
-          <div class="state-error" data-state="error" hidden></div>
-          <div class="state-ok" data-state="ok" hidden>
-            <ul class="alarm-list" id="alarm-list"></ul>
-          </div>
-        </div>
-      </section>
+      <!-- 수집 실패 경고 배너(meta.stale=true 일 때만, 모든 뷰 공통) -->
+      <div id="stale-banner" class="stale-banner" hidden></div>
 
-      <!-- 패널 2: 가동률·응답시간 -->
-      <section class="card" id="panel-uptime">
-        <div class="card-head">
-          <h2>가동률·응답시간</h2>
-          <div class="period-btns" data-period-group="uptime">
-            <button type="button" data-period="1">1일</button>
-            <button type="button" data-period="7" class="active">7일</button>
-            <button type="button" data-period="30">30일</button>
-          </div>
+      <!-- ════ 뷰: DASHBOARD (예외 중심 개요) ════ -->
+      <div class="view" id="view-dashboard" data-view="dashboard">
+        <!-- 종합 상태 한 줄 -->
+        <div class="insight-summary" id="dash-insight-summary">
+          <span class="insight-summary-dot" aria-hidden="true"></span>
+          <span class="insight-summary-text" id="dash-insight-text">상태 확인 중…</span>
+          <span class="insight-summary-counts">
+            <span class="insight-count crit">위험 <b id="dash-cnt-crit">—</b></span>
+            <span class="insight-count warn">주의 <b id="dash-cnt-warn">—</b></span>
+          </span>
         </div>
-        <div class="card-body">
-          <div class="state-loading" data-state="loading">
-            <div class="spinner"></div><span>로딩 중…</span>
-          </div>
-          <div class="state-empty" data-state="empty" hidden>
-            데이터 없음 — 수집기가 아직 실행되지 않았거나 수집 중입니다
-          </div>
-          <div class="state-error" data-state="error" hidden></div>
-          <div class="state-ok" data-state="ok" hidden>
-            <div class="kpi-row" id="uptime-summary"></div>
-            <div class="chart-wrap"><canvas id="uptime-pct-chart"></canvas></div>
-            <div class="chart-wrap"><canvas id="uptime-ms-chart"></canvas></div>
-          </div>
-        </div>
-      </section>
 
-      <!-- 패널 3: 트래픽·사용자 -->
-      <section class="card" id="panel-traffic">
-        <div class="card-head">
-          <h2>트래픽·사용자</h2>
-          <div class="period-btns" data-period-group="traffic">
-            <button type="button" data-period="1">1일</button>
-            <button type="button" data-period="7" class="active">7일</button>
-            <button type="button" data-period="30">30일</button>
-          </div>
+        <!-- 주목 필요(critical/warning 만) — 없으면 JS가 숨김 -->
+        <div id="dash-attention-wrap" hidden>
+          <div class="section-label"><span class="sec-icon" aria-hidden="true">⚠</span> 주목 필요</div>
+          <ul class="insight-list" id="dash-attention-list"></ul>
         </div>
-        <div class="card-body">
-          <div class="state-loading" data-state="loading">
-            <div class="spinner"></div><span>로딩 중…</span>
-          </div>
-          <div class="state-empty" data-state="empty" hidden>
-            데이터 없음 — 수집기가 아직 실행되지 않았거나 수집 중입니다
-          </div>
-          <div class="state-error" data-state="error" hidden></div>
-          <div class="state-ok" data-state="ok" hidden>
-            <div class="kpi-row" id="traffic-summary"></div>
-            <div class="chart-wrap chart-bar"><canvas id="traffic-topep-chart"></canvas></div>
-            <div class="chart-wrap"><canvas id="traffic-hourly-chart"></canvas></div>
-          </div>
-        </div>
-      </section>
 
-      <!-- 패널 4: 응답품질·DB -->
-      <section class="card" id="panel-quality">
-        <div class="card-head">
-          <h2>응답품질·DB</h2>
-          <div class="period-btns" data-period-group="traffic">
-            <button type="button" data-period="1">1일</button>
-            <button type="button" data-period="7" class="active">7일</button>
-            <button type="button" data-period="30">30일</button>
-          </div>
+        <!-- 전체 지표(접기) — 정상은 숨기고 필요 시 펼침 -->
+        <details class="normal-fold" id="dash-normal-fold">
+          <summary><span class="ok-check" aria-hidden="true">✓</span> 전체 지표 보기</summary>
+          <div class="normal-body">
+        <!-- KPI 요약 스트립 -->
+        <div class="kpi-strip" id="kpi-strip">
+          <button type="button" class="kpi-tile" data-route-to="alarms" id="kpi-alarms">
+            <span class="kpi-tile-val">—</span>
+            <span class="kpi-tile-label">알람</span>
+          </button>
+          <button type="button" class="kpi-tile" data-route-to="uptime" id="kpi-uptime">
+            <span class="kpi-tile-val">—</span>
+            <span class="kpi-tile-label">가동률 24h</span>
+          </button>
+          <button type="button" class="kpi-tile" data-route-to="traffic" id="kpi-users">
+            <span class="kpi-tile-val">—</span>
+            <span class="kpi-tile-label">활성 사용자 7d</span>
+          </button>
+          <button type="button" class="kpi-tile" data-route-to="database" id="kpi-dbcpu">
+            <span class="kpi-tile-val">—</span>
+            <span class="kpi-tile-label">DB CPU</span>
+          </button>
+          <button type="button" class="kpi-tile" data-route-to="quality" id="kpi-5xx">
+            <span class="kpi-tile-val">—</span>
+            <span class="kpi-tile-label">5xx 에러 7d</span>
+          </button>
         </div>
-        <div class="card-body">
-          <!-- 품질(상태코드/에러) -->
-          <div class="subsection">
+
+        <!-- 영역별 요약 미니카드 그리드 -->
+        <div class="summary-grid">
+          <!-- 알람 요약 -->
+          <button type="button" class="mini-card" data-route-to="alarms" id="sum-alarms">
+            <div class="mini-head"><span class="mini-title">알람</span><span class="mini-go">자세히 →</span></div>
+            <div class="mini-body" id="sum-alarms-body"><span class="mini-muted">로딩 중…</span></div>
+          </button>
+          <!-- 가동률 요약 -->
+          <button type="button" class="mini-card" data-route-to="uptime" id="sum-uptime">
+            <div class="mini-head"><span class="mini-title">가동률 (24h)</span><span class="mini-go">자세히 →</span></div>
+            <div class="mini-body" id="sum-uptime-body"><span class="mini-muted">로딩 중…</span></div>
+          </button>
+          <!-- 트래픽 요약 -->
+          <button type="button" class="mini-card" data-route-to="traffic" id="sum-traffic">
+            <div class="mini-head"><span class="mini-title">트래픽 (7d)</span><span class="mini-go">자세히 →</span></div>
+            <div class="mini-body" id="sum-traffic-body"><span class="mini-muted">로딩 중…</span></div>
+          </button>
+          <!-- 품질 요약 -->
+          <button type="button" class="mini-card" data-route-to="quality" id="sum-quality">
+            <div class="mini-head"><span class="mini-title">응답품질 (7d)</span><span class="mini-go">자세히 →</span></div>
+            <div class="mini-body" id="sum-quality-body"><span class="mini-muted">로딩 중…</span></div>
+          </button>
+          <!-- DB 요약 -->
+          <button type="button" class="mini-card" data-route-to="database" id="sum-db">
+            <div class="mini-head"><span class="mini-title">DB 성능</span><span class="mini-go">자세히 →</span></div>
+            <div class="mini-body" id="sum-db-body"><span class="mini-muted">로딩 중…</span></div>
+          </button>
+          <!-- 호스트(EC2) 요약 -->
+          <button type="button" class="mini-card" data-route-to="host" id="sum-host">
+            <div class="mini-head"><span class="mini-title">호스트 (EC2)</span><span class="mini-go">자세히 →</span></div>
+            <div class="mini-body" id="sum-host-body"><span class="mini-muted">로딩 중…</span></div>
+          </button>
+          <!-- CDN(CloudFront) 요약 -->
+          <button type="button" class="mini-card" data-route-to="cdn" id="sum-cdn">
+            <div class="mini-head"><span class="mini-title">CDN (CloudFront)</span><span class="mini-go">자세히 →</span></div>
+            <div class="mini-body" id="sum-cdn-body"><span class="mini-muted">로딩 중…</span></div>
+          </button>
+        </div>
+          </div>
+        </details>
+      </div>
+
+      <!-- ════ 뷰: ALARMS ════ -->
+      <div class="view" id="view-alarms" data-view="alarms" hidden>
+        <section class="card" id="panel-alarms">
+          <div class="card-head">
+            <h2>알람</h2>
+            <span class="card-meta" id="alarms-summary"></span>
+          </div>
+          <div class="card-body">
             <div class="state-loading" data-state="loading">
               <div class="spinner"></div><span>로딩 중…</span>
             </div>
@@ -118,18 +218,124 @@
             </div>
             <div class="state-error" data-state="error" hidden></div>
             <div class="state-ok" data-state="ok" hidden>
-              <div class="quality-grid">
-                <div class="chart-wrap chart-donut"><canvas id="quality-buckets-chart"></canvas></div>
-                <div class="top-err">
-                  <h3>에러 Top</h3>
-                  <ul class="err-list" id="top-err-list"></ul>
-                </div>
+              <div class="alarm-allclear" id="alarm-allclear" hidden>
+                <span class="alarm-allclear-icon" aria-hidden="true">✓</span>
+                <span>모든 알람 정상</span>
+              </div>
+              <ul class="alarm-list" id="alarm-list"></ul>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ════ 뷰: UPTIME ════ -->
+      <div class="view" id="view-uptime" data-view="uptime" hidden>
+        <section class="card" id="panel-uptime">
+          <div class="card-head">
+            <h2>가동률·응답시간</h2>
+            <div class="period-btns" data-period-group="uptime">
+              <button type="button" data-period="1">1일</button>
+              <button type="button" data-period="7" class="active">7일</button>
+              <button type="button" data-period="30">30일</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="state-loading" data-state="loading">
+              <div class="spinner"></div><span>로딩 중…</span>
+            </div>
+            <div class="state-empty" data-state="empty" hidden>
+              데이터 없음 — 수집기가 아직 실행되지 않았거나 수집 중입니다
+            </div>
+            <div class="state-error" data-state="error" hidden></div>
+            <div class="state-ok" data-state="ok" hidden>
+              <!-- 가동률 요약(큰 숫자 + sparkline) — 평선이라 축약 -->
+              <div class="uptime-cards" id="uptime-summary"></div>
+              <!-- 응답시간이 주 차트 -->
+              <h3 class="ts-title">응답시간 추세 (ms)
+                <span class="help-icon" title="avg = 평균 응답시간 · p95 = 가장 느린 5% 요청 기준(체감 지연) · health = 헬스체크 / home = 홈페이지" aria-label="응답시간 지표 설명"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 100 20 10 10 0 000-20zm0 15a1 1 0 110 2 1 1 0 010-2zm1.3-4.6c-.5.4-.8.7-.8 1.3v.3h-1.9v-.4c0-1.1.5-1.8 1.3-2.4.6-.4.9-.7.9-1.2 0-.6-.5-1-1.1-1-.7 0-1.1.4-1.3 1l-1.7-.7C9.4 8 10.5 7.2 12 7.2c1.7 0 3 1 3 2.6 0 1.1-.6 1.8-1.7 2.6z"/></svg></span>
+              </h3>
+              <div class="chart-wrap chart-tall"><canvas id="uptime-ms-chart"></canvas></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ════ 뷰: TRAFFIC ════ -->
+      <div class="view" id="view-traffic" data-view="traffic" hidden>
+        <section class="card" id="panel-traffic">
+          <div class="card-head">
+            <h2>트래픽·사용자</h2>
+            <div class="period-btns" data-period-group="traffic">
+              <button type="button" data-period="1">1일</button>
+              <button type="button" data-period="7" class="active">7일</button>
+              <button type="button" data-period="30">30일</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="state-loading" data-state="loading">
+              <div class="spinner"></div><span>로딩 중…</span>
+            </div>
+            <div class="state-empty" data-state="empty" hidden>
+              데이터 없음 — 수집기가 아직 실행되지 않았거나 수집 중입니다
+            </div>
+            <div class="state-error" data-state="error" hidden></div>
+            <div class="state-ok" data-state="ok" hidden>
+              <div class="kpi-row" id="traffic-summary"></div>
+              <div class="chart-wrap chart-bar"><canvas id="traffic-topep-chart"></canvas></div>
+              <div class="chart-wrap"><canvas id="traffic-hourly-chart"></canvas></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ════ 뷰: QUALITY ════ -->
+      <div class="view" id="view-quality" data-view="quality" hidden>
+        <section class="card" id="panel-quality">
+          <div class="card-head">
+            <h2>응답품질</h2>
+            <div class="period-btns" data-period-group="traffic">
+              <button type="button" data-period="1">1일</button>
+              <button type="button" data-period="7" class="active">7일</button>
+              <button type="button" data-period="30">30일</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <!-- 품질(상태코드/에러) -->
+            <div class="subsection">
+              <div class="state-loading" data-state="loading">
+                <div class="spinner"></div><span>로딩 중…</span>
+              </div>
+              <div class="state-empty" data-state="empty" hidden>
+                데이터 없음 — 수집기가 아직 실행되지 않았거나 수집 중입니다
+              </div>
+              <div class="state-error" data-state="error" hidden></div>
+              <div class="state-ok" data-state="ok" hidden>
+                <!-- 상태코드 합계 배지(요약 한 줄) -->
+                <div class="bucket-badges" id="bucket-badges"></div>
+                <!-- 에러 목록(메인) -->
+                <h3 class="err-heading">에러 발생 위치</h3>
+                <ul class="err-list" id="top-err-list"></ul>
+                <!-- 스캐너 탐침(별도) -->
+                <div class="scanner-note" id="scanner-note" hidden></div>
+                <!-- 상태코드 분포(보조, 접이식) -->
+                <details class="bucket-details">
+                  <summary>상태코드 분포 보기</summary>
+                  <div class="chart-wrap chart-donut-sm"><canvas id="quality-buckets-chart"></canvas></div>
+                </details>
               </div>
             </div>
           </div>
-          <!-- DB(별도 격리: /api/db) -->
-          <div class="subsection" id="subsection-db">
-            <h3>DB (RDS)</h3>
+        </section>
+      </div>
+
+      <!-- ════ 뷰: HOST (EC2) ════ -->
+      <div class="view" id="view-host" data-view="host" hidden>
+        <section class="card" id="panel-host">
+          <div class="card-head">
+            <h2>EC2 인스턴스</h2>
+            <span class="card-meta" id="host-summary"></span>
+          </div>
+          <div class="card-body">
             <div class="state-loading" data-state="loading">
               <div class="spinner"></div><span>로딩 중…</span>
             </div>
@@ -138,25 +344,192 @@
             </div>
             <div class="state-error" data-state="error" hidden></div>
             <div class="state-ok" data-state="ok" hidden>
-              <div class="kpi-row kpi-db" id="db-kpis"></div>
+              <!-- 인스턴스별 카드 그리드 -->
+              <div class="host-grid" id="host-instances"></div>
+              <!-- CPU 시계열 멀티라인 -->
+              <h3 class="ts-title">인스턴스별 CPU 추세</h3>
+              <div class="chart-wrap"><canvas id="host-cpu-chart"></canvas></div>
             </div>
           </div>
+        </section>
+      </div>
+
+      <!-- ════ 뷰: CDN (CloudFront) ════ -->
+      <div class="view" id="view-cdn" data-view="cdn" hidden>
+        <section class="card" id="panel-cdn">
+          <div class="card-head">
+            <h2>CloudFront CDN</h2>
+            <span class="card-meta" id="cdn-summary"></span>
+          </div>
+          <div class="card-body">
+            <div class="state-loading" data-state="loading">
+              <div class="spinner"></div><span>로딩 중…</span>
+            </div>
+            <div class="state-empty" data-state="empty" hidden>
+              데이터 없음 — 수집기가 아직 실행되지 않았거나 수집 중입니다
+            </div>
+            <div class="state-error" data-state="error" hidden></div>
+            <div class="state-ok" data-state="ok" hidden>
+              <!-- 배포별 카드 그리드 -->
+              <div class="host-grid" id="cdn-distributions"></div>
+              <!-- 시계열 2종 -->
+              <h3 class="ts-title">요청·에러율 추세</h3>
+              <div class="ts-grid">
+                <div class="chart-wrap"><canvas id="cdn-req-chart"></canvas></div>
+                <div class="chart-wrap"><canvas id="cdn-err-chart"></canvas></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ════ 뷰: DATABASE ════ -->
+      <div class="view" id="view-database" data-view="database" hidden>
+        <section class="card" id="panel-db">
+          <div class="card-head">
+            <h2>DB 성능 (RDS)</h2>
+            <span class="card-meta" id="db-summary"></span>
+          </div>
+          <div class="card-body">
+            <div class="subsection" id="subsection-db">
+              <div class="state-loading" data-state="loading">
+                <div class="spinner"></div><span>로딩 중…</span>
+              </div>
+              <div class="state-empty" data-state="empty" hidden>
+                데이터 없음 — 수집기가 아직 실행되지 않았거나 수집 중입니다
+              </div>
+              <div class="state-error" data-state="error" hidden></div>
+              <div class="state-ok" data-state="ok" hidden>
+                <!-- RDS 인스턴스별 카드 그리드(클릭 시 상세 모달) -->
+                <div class="host-grid" id="db-instances"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ════ 뷰: INSIGHTS (인사이트) ════ -->
+      <div class="view" id="view-insights" data-view="insights" hidden>
+        <!-- 종합 상태 한 줄 -->
+        <div class="insight-summary" id="ins-summary">
+          <span class="insight-summary-dot" aria-hidden="true"></span>
+          <span class="insight-summary-text" id="ins-summary-text">분석 중…</span>
+          <span class="insight-summary-counts">
+            <span class="insight-count crit">위험 <b id="ins-cnt-crit">—</b></span>
+            <span class="insight-count warn">주의 <b id="ins-cnt-warn">—</b></span>
+            <span class="insight-count">정보 <b id="ins-cnt-info">—</b></span>
+          </span>
         </div>
-      </section>
+
+        <section class="card" id="panel-insights">
+          <div class="card-head">
+            <h2>운영 인사이트</h2>
+            <span class="card-meta" id="ins-meta"></span>
+          </div>
+          <div class="card-body">
+            <div class="state-loading" data-state="loading">
+              <div class="spinner"></div><span>분석 중…</span>
+            </div>
+            <div class="state-empty" data-state="empty" hidden>
+              데이터 없음 — 수집기가 아직 실행되지 않았거나 수집 중입니다
+            </div>
+            <div class="state-error" data-state="error" hidden></div>
+            <div class="state-ok" data-state="ok" hidden>
+              <!-- AI 종합 분석(룰 신호 기반) -->
+              <div class="insight-ai" id="ins-ai" hidden>
+                <div class="insight-ai-head"><span aria-hidden="true">🤖</span> AI 종합 분석</div>
+                <div class="insight-ai-body" id="ins-ai-body"></div>
+                <div class="insight-ai-foot">룰 탐지 신호 기반 · Gemini</div>
+              </div>
+              <!-- 신호 카드 리스트 -->
+              <ul class="insight-list" id="ins-list"></ul>
+              <!-- 신호 없음 -->
+              <div class="insight-none" id="ins-none" hidden>
+                <span>✓ 현재 주목할 신호 없음</span>
+                <span class="insight-none-sub">모든 지표가 정상 범위입니다</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
 
     </main>
 
-    <!-- 채팅 패널: 전체폭 카드 -->
-    <section class="card chat-card" id="panel-chat">
-      <div class="card-head">
-        <h2>운영 봇에게 질문</h2>
-        <span class="card-meta">SQLite 캐시 기반 Q&amp;A</span>
-      </div>
-      <div class="card-body chat-body">
-        <div class="chat-messages" id="chat-messages" aria-live="polite">
-          <div class="chat-msg bot">
-            <div class="chat-bubble">안녕하세요. 운영 현황에 대해 무엇이든 물어보세요.</div>
+    <!-- ══ RDS 인스턴스 상세 모달 ══ -->
+    <div class="modal-overlay" id="db-modal" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="db-modal-title">
+        <div class="modal-head">
+          <div class="modal-head-text">
+            <h2 class="modal-title" id="db-modal-title">—</h2>
+            <span class="modal-sub" id="db-modal-sub"></span>
           </div>
+          <button type="button" class="modal-close" id="db-modal-close" aria-label="닫기">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M18.3 5.71L12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.29 19.71 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.3-6.3z"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-meta" id="db-modal-meta"></div>
+          <div class="chart-wrap"><canvas id="db-detail-cpu-chart"></canvas></div>
+          <div class="chart-wrap"><canvas id="db-detail-mem-chart"></canvas></div>
+          <div class="chart-wrap"><canvas id="db-detail-load-chart"></canvas></div>
+          <div class="chart-wrap"><canvas id="db-detail-conn-chart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ EC2 인스턴스 상세 모달(클릭 시 표시) ══ -->
+    <div class="modal-overlay" id="host-modal" hidden>
+      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="host-modal-title">
+        <div class="modal-head">
+          <div class="modal-head-text">
+            <h2 class="modal-title" id="host-modal-title">—</h2>
+            <span class="modal-sub" id="host-modal-sub"></span>
+          </div>
+          <button type="button" class="modal-close" id="host-modal-close" aria-label="닫기">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M18.3 5.71L12 12l6.3 6.29-1.41 1.42L10.59 13.4 4.29 19.71 2.88 18.3 9.17 12 2.88 5.71 4.29 4.29l6.3 6.3 6.3-6.3z"/></svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <!-- 메타 -->
+          <div class="modal-meta" id="host-modal-meta"></div>
+          <!-- 시계열 차트 3종 -->
+          <div class="chart-wrap"><canvas id="host-detail-cpu-chart"></canvas></div>
+          <div class="chart-wrap"><canvas id="host-detail-net-chart"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ 우측 채팅 패널(모든 뷰 공통) ══ -->
+    <aside class="chat-sidebar" id="panel-chat">
+      <div class="chat-head">
+        <div class="chat-head-title">
+          <span class="chat-head-avatar" aria-hidden="true">🤖</span>
+          <div class="chat-head-text">
+            <h2>운영 봇</h2>
+            <span class="chat-head-sub">Gemini · SQLite 캐시 Q&amp;A</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="chat-messages" id="chat-messages" aria-live="polite">
+        <!-- 환영 말풍선(봇) -->
+        <div class="chat-msg bot">
+          <div class="chat-bubble">
+            <span class="chat-role">ASSISTANT</span>
+            <span class="chat-text">안녕하세요. 운영 현황에 대해 무엇이든 물어보세요.</span>
+          </div>
+        </div>
+        <!-- 예시 질문 칩(클릭 시 자동 전송) -->
+        <div class="chat-chips" id="chat-chips">
+          <button type="button" class="chat-chip" data-q="지금 알람 상태 어때?">지금 알람 상태</button>
+          <button type="button" class="chat-chip" data-q="이번주 많이 쓴 API는?">이번주 많이 쓴 API</button>
+          <button type="button" class="chat-chip" data-q="DB 상태 어때?">DB 상태 어때?</button>
+        </div>
+      </div>
+
+      <div class="chat-foot">
+        <div class="chat-model-chip" aria-hidden="true">
+          <span class="model-dot"></span>Google · Gemini 2.5 Flash
         </div>
         <form class="chat-input-row" id="chat-form" autocomplete="off">
           <input
@@ -164,12 +537,17 @@
             class="chat-input"
             id="chat-input"
             maxlength="1000"
-            placeholder="예: 지금 알람 상태 어때? / 이번주 많이 쓴 API는?"
+            placeholder="질문을 입력하세요…"
             aria-label="질문 입력">
-          <button type="submit" class="chat-send" id="chat-send">전송</button>
+          <button type="submit" class="chat-send" id="chat-send" aria-label="전송">
+            <svg class="chat-send-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path fill="currentColor" d="M12 20V7.8l-5.6 5.6L5 12l8-8 8 8-1.4 1.4L14 7.8V20z"/>
+            </svg>
+            <span class="chat-send-spinner" aria-hidden="true"></span>
+          </button>
         </form>
       </div>
-    </section>
+    </aside>
 
   </div>
 

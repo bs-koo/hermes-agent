@@ -7,6 +7,7 @@
 의존성 추가 금지: google-generativeai 대신 urllib.request 로 Gemini REST 직접 호출
 (기존 스크립트의 webhook 호출과 동일 패턴)."""
 import json
+import time
 import datetime
 import urllib.request
 import urllib.error
@@ -126,33 +127,45 @@ def _build_context():
 
 
 # ── Gemini REST 호출 ──────────────────────────────────────────────────
-def answer_question(question):
-    """질문을 현재 수집 데이터 컨텍스트와 함께 Gemini 에 보내 한국어 답변을 받는다.
-    성공: {"answer": text}. 키 미설정: {"error": ...}. 호출 실패/예외: {"error": ...}."""
+def _gemini_call(prompt, max_tokens=800, temperature=0.2):
+    """Gemini REST 호출 공통 헬퍼. 성공: {"answer": text} / 실패: {"error": msg}.
+    일시 오류(5xx/429/네트워크)는 점증 백오프로 최대 3회 재시도, 4xx 는 즉시 반환."""
     key = config.GEMINI_API_KEY
     if not key:
         return {"error": "GEMINI_API_KEY 미설정"}
 
-    context = _build_context()
-    prompt = (f"{SYSTEM_PROMPT}\n\n[현재 수집 데이터]\n{context}\n\n"
-              f"[질문]\n{question}")
-
     body = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 800},
+        "generationConfig": {"temperature": temperature, "maxOutputTokens": max_tokens},
     }, ensure_ascii=False).encode("utf-8")
 
     url = GEMINI_URL.format(model=config.GEMINI_MODEL, key=key)
     req = urllib.request.Request(
         url, data=body,
         headers={"Content-Type": "application/json; charset=UTF-8"})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            data = json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        return {"error": f"Gemini 호출 실패(HTTP {e.code})"}
-    except Exception as e:  # noqa: BLE001 — 네트워크/파싱 등 모든 예외를 error 로
-        return {"error": f"Gemini 호출 실패: {e}"}
+    data = None
+    # 일시적 오류(5xx/429: Gemini 과부하, DNS/네트워크)는 최대 3회까지 재시도.
+    # 4xx(키/요청 오류)는 재시도 무의미 → 즉시 반환.
+    _RETRYABLE = (429, 500, 502, 503, 504)
+    last_err = "알 수 없음"
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in _RETRYABLE and attempt < 2:
+                time.sleep(1.5 * (attempt + 1))  # 점증 백오프
+                continue
+            return {"error": f"Gemini 호출 실패(HTTP {e.code})"}
+        except Exception as e:  # noqa: BLE001 — URLError(DNS/네트워크) 등 일시 실패
+            last_err = str(e)
+            if attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            return {"error": f"Gemini 호출 실패: {last_err}"}
+    if data is None:
+        return {"error": "Gemini 호출 실패(재시도 소진)"}
 
     try:
         text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
@@ -161,3 +174,54 @@ def answer_question(question):
     if not text:
         return {"error": "Gemini 빈 응답"}
     return {"answer": text}
+
+
+def answer_question(question):
+    """질문을 현재 수집 데이터 컨텍스트와 함께 Gemini 에 보내 한국어 답변을 받는다.
+    성공: {"answer": text}. 키 미설정/호출 실패: {"error": ...}."""
+    context = _build_context()
+    prompt = (f"{SYSTEM_PROMPT}\n\n[현재 수집 데이터]\n{context}\n\n"
+              f"[질문]\n{question}")
+    return _gemini_call(prompt, max_tokens=800)
+
+
+# ── 인사이트 AI 설명(룰 findings → 우선순위·원인·조치) ────────────────
+INSIGHT_PROMPT = (
+    "너는 dataviz-prod 운영 모니터링 분석가다. 아래는 룰 엔진이 탐지한 '주목 신호' 목록이다. "
+    "이 목록에 있는 사실만 근거로, 운영자가 지금 무엇을 먼저 봐야 하는지 한국어로 3~5문장으로 요약하라. "
+    "우선순위(가장 급한 것 먼저), 가능한 원인, 권장 조치를 간단히 제시하라. "
+    "목록에 없는 수치·리소스·원인을 지어내지 마라(환각 금지). "
+    "불릿 없이 자연스러운 문단으로 작성하라.")
+
+# 단일 워커 전제 모듈 캐시(findings 동일 시 Gemini 재호출 회피)
+_INSIGHT_CACHE = {"key": None, "text": None}
+
+
+def _findings_key(findings):
+    return tuple((f.get("severity"), f.get("area"), f.get("title"),
+                  f.get("evidence")) for f in findings)
+
+
+def insight_comment(findings, summary=None):
+    """룰 findings 를 Gemini 에 넘겨 한국어 종합 코멘트를 생성한다.
+    findings 동일하면 캐시 반환. 키 미설정/호출 실패 시 None(프론트는 코멘트 생략)."""
+    if not config.GEMINI_API_KEY:
+        return None
+    fkey = _findings_key(findings)
+    if _INSIGHT_CACHE["key"] == fkey and _INSIGHT_CACHE["text"] is not None:
+        return _INSIGHT_CACHE["text"]
+    if not findings:
+        text = "현재 특별히 주목할 이상 신호가 없습니다. 모든 지표가 정상 범위입니다."
+        _INSIGHT_CACHE.update(key=fkey, text=text)
+        return text
+    lines = []
+    for f in findings:
+        lines.append(f"- [{f.get('severity')}] {f.get('area')} · "
+                     f"{f.get('title')} ({f.get('evidence')})")
+    prompt = f"{INSIGHT_PROMPT}\n\n[탐지된 신호]\n" + "\n".join(lines)
+    res = _gemini_call(prompt, max_tokens=600)
+    text = res.get("answer")
+    if not text:
+        return None  # 실패는 캐시하지 않음(다음 요청서 재시도)
+    _INSIGHT_CACHE.update(key=fkey, text=text)
+    return text
