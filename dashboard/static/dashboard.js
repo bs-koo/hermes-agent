@@ -2,8 +2,7 @@
  *
  * - 패널별 독립 fetch(try/catch 격리) + setInterval 폴링
  * - 3-상태 렌더링(로딩/빈상태/정상), 빈 차트 미렌더
- * - traffic total===0 / quality buckets 합계 0 → 빈상태(빈 차트 금지)
- * - 기간 버튼: uptime 전용 1세트, traffic/quality 공유 1세트
+ * - 기간 버튼: uptime 전용 1세트(트래픽 메뉴는 폐지 — 이상 징후는 인사이트로)
  * - Chart.js 인스턴스는 재조회 시 destroy 후 재생성(메모리 누수 방지)
  * - 시각: 백엔드 epoch(UTC 기준) → +9h KST 표시 공통 유틸
  * - 보안: 외부유래 문자열(알람 name/reason, top_ep.key, top_err.key, 채팅 answer 등)은
@@ -17,12 +16,10 @@
 var POLL = {
   alarms: 30000,
   uptime: 60000,
-  traffic: 60000,
+  view: 60000,     /* 활성 뷰 일반 갱신 주기 */
   meta: 30000
 };
 
-/* 트래픽/품질이 공유하는 기간(설계: 같은 period 공유) */
-var trafficPeriod = 7;
 /* 가동률 전용 기간 */
 var uptimePeriod = 7;
 
@@ -31,17 +28,17 @@ var charts = {};
 
 /* ── 토스(Toss) 라이트 색 토큰(JS 측 차트용) ───────────── */
 var C = {
-  blue: '#4b91f7',     /* 주 라인/막대(토스블루) */
-  blue2: '#9aa0aa',    /* 보조 라인(muted) */
-  gray: '#6b6f79',     /* 옅은 회색 라인 */
-  ok: '#3dd68c',       /* success */
-  alarm: '#ff5c5c',    /* error */
-  amber: '#ffb020',    /* warning */
-  ink: '#f4f5f7'       /* 라이트 위 진한 글자(범례 등) */
+  blue: '#3182f6',     /* 주 라인/막대(토스블루 액센트) */
+  blue2: '#7a7a7a',    /* 보조 라인(tertiary) */
+  gray: '#9b9b9b',     /* 옅은 회색 라인(disabled) */
+  ok: '#6b9b7a',       /* success(StyleSeed) */
+  alarm: '#d4183d',    /* destructive(StyleSeed) */
+  amber: '#d97706',    /* warning(StyleSeed) */
+  ink: '#3c3c3c'       /* 라이트 위 진한 글자(범례 등) */
 };
 /* 격자/축 — 라이트 위 옅은 격자, muted 축 글자 */
-var GRID = '#2a2c33';
-var TICK = '#9aa0aa';
+var GRID = '#e8e6e1';
+var TICK = '#7a7a7a';
 var SYS_FONT = 'Pretendard, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
 
 /* ── 공통 유틸 ─────────────────────────────────────────── */
@@ -143,8 +140,9 @@ if (typeof Chart !== 'undefined' && Chart.defaults) {
   Chart.defaults.set('interaction', { mode: 'index', intersect: false });
   Chart.defaults.set('plugins.tooltip', {
     enabled: true,
-    backgroundColor: '#23252c', borderColor: '#2a2c33', borderWidth: 1,
-    titleColor: '#f4f5f7', bodyColor: '#cfd3da', padding: 10, cornerRadius: 8,
+    position: 'nearest',   /* 커서에 가장 가까운 점에 붙고 빈 쪽으로 자동 뒤집힘(막대·라인 공통) */
+    backgroundColor: '#2a2a2a', borderColor: 'transparent', borderWidth: 0,
+    titleColor: '#ffffff', bodyColor: '#e8e6e1', padding: 10, cornerRadius: 8,
     displayColors: true, titleFont: { size: 12, weight: '700' }, bodyFont: { size: 12 }
   });
 }
@@ -191,7 +189,7 @@ var barValuePlugin = {
     var meta = chart.getDatasetMeta(0);
     if (!meta || meta.hidden) return;
     ctx.save();
-    ctx.fillStyle = '#9aa0aa';
+    ctx.fillStyle = '#7a7a7a';
     ctx.font = '11px ' + SYS_FONT;
     ctx.textBaseline = 'middle';
     var data = chart.data.datasets[0].data;
@@ -218,7 +216,7 @@ function donutCenterPlugin(total) {
       ctx.save();
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#f4f5f7';
+      ctx.fillStyle = '#2a2a2a';
       ctx.font = '700 22px ' + SYS_FONT;
       ctx.fillText(fmtNum(total), cx, cy - 6);
       ctx.fillStyle = TICK;
@@ -243,7 +241,7 @@ function legendTop() {
 }
 
 /* 호스트/DB 시계열 색 팔레트(인스턴스 멀티라인용) */
-var TS_COLORS = ['#4b91f7', '#3dd68c', '#ffb020', '#ff5c5c', '#8b5cf6', '#00b8d9', '#f06595'];
+var TS_COLORS = ['#3182f6', '#6b9b7a', '#d97706', '#d4183d', '#8b5cf6', '#0891b2', '#db2777'];
 
 /* 공통 시계열 라인 차트 렌더.
  *  key       : charts[] 추적 키 / canvasId : <canvas> id
@@ -264,7 +262,7 @@ function renderTsLine(key, canvasId, series, opts) {
     if (charts[key]) { charts[key].destroy(); charts[key] = null; }
     return;
   }
-  var labels = tsAll.map(function (t) { return tsLabel(t, 1); });   /* 시계열은 HH:MM 위주 */
+  var labels = tsAll.map(function (t) { return tsLabel(t, opts.labelPeriod || 1); });   /* 기본 HH:MM, labelPeriod=30이면 MM-DD(일별) */
   var few = tsAll.length <= 12;
 
   var datasets = series.map(function (s, i) {
@@ -278,7 +276,7 @@ function renderTsLine(key, canvasId, series, opts) {
         if (v === undefined || v === null) return null;
         return (opts.unit === 'mb') ? bytesToMb(v) : (opts.unit === 'gb' ? Number(v) / (1024 * 1024 * 1024) : v);
       }),
-      borderColor: color, backgroundColor: opts.fill ? 'rgba(75,145,247,0.16)' : color,
+      borderColor: color, backgroundColor: opts.fill ? 'rgba(49,130,246,0.12)' : color,
       pointBackgroundColor: color,
       borderWidth: 1.5, tension: few ? 0.1 : 0.25, spanGaps: true, fill: !!opts.fill,
       pointRadius: 2, pointHoverRadius: 5, pointHitRadius: 8
@@ -305,7 +303,11 @@ function renderTsLine(key, canvasId, series, opts) {
       plugins: {
         legend: opts.legend ? legendTop() : { display: false },
         title: opts.title ? { display: true, text: opts.title, color: TICK, font: { size: 12 } } : { display: false },
-        tooltip: { callbacks: { title: tsTitleCb(tsAll), label: unitLabel } }
+        tooltip: {
+          position: 'nearest',   /* 커서에 가장 가까운 점에 붙고 빈 쪽으로 자동 뒤집힘(차트 가림 방지) */
+          itemSort: function (a, b) { return (b.parsed.y || 0) - (a.parsed.y || 0); },  /* 값 큰 순 */
+          callbacks: { title: tsTitleCb(tsAll), label: unitLabel }
+        }
       },
       scales: baseScales(opts.yBeginZero === false ? { y: { grid: { color: GRID }, ticks: { color: TICK } } } : null)
     }
@@ -344,15 +346,12 @@ function labelWithHelp(labelText, helpText) {
 
 /* 지표 용어 설명(핵심만) */
 var TERM_HELP = {
-  avg: '평균 응답시간',
-  p95: '95퍼센타일 — 가장 느린 5% 요청 기준(체감 지연)',
-  health: '헬스체크 엔드포인트',
-  home: '홈페이지',
-  dbload: 'DBLoad — 활성 세션 수(DB 부하)',
-  credit: 'CPU 크레딧 — 버스트 가능 잔량(t계열, 소진 시 성능 저하)',
-  iops: 'IOPS — 초당 디스크 입출력',
-  conn: '동시 DB 연결 수',
-  mem: '여유 메모리(FreeableMemory)'
+  avg: '평균 응답시간이에요. 기간 내 요청들의 평균 응답 속도로, 낮을수록 빠릅니다.',
+  p95: '95%의 요청이 이 시간보다 빨랐다는 뜻이에요(느린 5%만 이보다 김). 가장 느린 사용자들의 체감 지연을 보여줍니다.',
+  health: '서버가 살아있는지 확인하는 점검용 주소예요. 여기서 실패하면 서버 자체가 응답하지 못하는 상태입니다.',
+  home: '실제 사용자가 보는 홈페이지예요. 사용자 체감 가동률·속도를 대표합니다.',
+  conn: '지금 DB에 동시에 연결된 수예요. 한계에 가까워지면 새 연결이 거부될 수 있습니다.',
+  mem: 'DB가 더 쓸 수 있는 남은 메모리예요. 0에 가까울수록 느려지거나 불안정해집니다.'
 };
 
 /* 알람명 키워드 → 쉬운 한국어 설명(친근) */
@@ -433,6 +432,11 @@ function sumSet(bodyId, rows, msgCls, msg) {
 
 /* ── 인사이트(룰 findings) 공통 렌더 ───────────────────── */
 var SEV_LABEL = { critical: '위험', warning: '주의', info: '정보' };
+/* 드릴다운 영역 → 사람이 읽는 라벨(인사이트 카드 '자세히 보기' 버튼) */
+var ROUTE_LABEL = {
+  host: '호스트(EC2)', database: 'DB 성능', cdn: 'CDN', alarms: '알람',
+  uptime: '가동률·응답시간'
+};
 
 /* id 요소의 textContent 설정(없으면 무시) */
 function setText(id, v) {
@@ -440,8 +444,9 @@ function setText(id, v) {
   if (el) el.textContent = v;
 }
 
-/* finding → <li> 카드(외부유래 title/evidence 는 textContent 로만 주입) */
-function makeInsightCard(f) {
+/* finding → <li> 카드(외부유래 title/evidence 는 textContent 로만 주입)
+ * compact=true(개요 '주목 필요'): 설명+이동만 / false(인사이트 뷰): 조치 목록까지 */
+function makeInsightCard(f, compact) {
   var li = document.createElement('li');
   li.className = 'insight-card ' + (f.severity || 'info');
   var top = document.createElement('div');
@@ -462,6 +467,47 @@ function makeInsightCard(f) {
     ev.className = 'insight-evidence';
     ev.textContent = f.evidence;            /* 근거 수치 → textContent */
     li.appendChild(ev);
+  }
+  /* 언제 감지됐는지(수집 시각) — 위치는 영역 배지+제목 */
+  if (f.ts) {
+    var when = document.createElement('div');
+    when.className = 'insight-when';
+    when.textContent = '🕘 ' + epochToKst(f.ts, true) + ' 감지';
+    li.appendChild(when);
+  }
+  /* 쉬운 설명(무엇/왜) */
+  if (f.meaning) {
+    var mean = document.createElement('div');
+    mean.className = 'insight-meaning';
+    mean.textContent = f.meaning;
+    li.appendChild(mean);
+  }
+  /* 권장 조치(인사이트 뷰에서만 펼침) */
+  if (!compact && f.action && f.action.length) {
+    var acts = document.createElement('div');
+    acts.className = 'insight-actions';
+    var ahead = document.createElement('div');
+    ahead.className = 'insight-actions-head';
+    ahead.textContent = '권장 조치';
+    acts.appendChild(ahead);
+    var aul = document.createElement('ul');
+    aul.className = 'insight-action-list';
+    f.action.forEach(function (step) {
+      var ali = document.createElement('li');
+      ali.textContent = step;
+      aul.appendChild(ali);
+    });
+    acts.appendChild(aul);
+    li.appendChild(acts);
+  }
+  /* 해당 영역으로 이동(드릴다운) */
+  if (f.route) {
+    var drill = document.createElement('button');
+    drill.type = 'button';
+    drill.className = 'insight-drill';
+    drill.textContent = (ROUTE_LABEL[f.route] || f.route) + '에서 자세히 보기 →';
+    drill.addEventListener('click', function () { location.hash = '#/' + f.route; });
+    li.appendChild(drill);
   }
   return li;
 }
@@ -528,7 +574,7 @@ function loadDashboardInsight() {
     if (!attn.length) { if (wrap) wrap.hidden = true; }
     else {
       if (wrap) wrap.hidden = false;
-      attn.forEach(function (f) { if (alist) alist.appendChild(makeInsightCard(f)); });
+      attn.forEach(function (f) { if (alist) alist.appendChild(makeInsightCard(f, true)); });
     }
   }).catch(function () {
     setText('dash-insight-text', '인사이트 불러오기 실패');
@@ -551,8 +597,8 @@ function loadDashboardSummary() {
       sumSet('sum-alarms-body', null, '', '데이터 없음'); return;
     }
     var s = d.summary || { total: 0, alarm: 0 };
-    if (s.alarm > 0) { setStatusPill('bad', s.alarm + ' Alarm'); setKpiTile('kpi-alarms', '경보 ' + s.alarm, 'bad'); }
-    else { setStatusPill('ok', 'Operational'); setKpiTile('kpi-alarms', '정상', 'good'); }
+    if (s.alarm > 0) { setStatusPill('bad', '경보 ' + s.alarm); setKpiTile('kpi-alarms', '경보 ' + s.alarm, 'bad'); }
+    else { setStatusPill('ok', '정상'); setKpiTile('kpi-alarms', '정상', 'good'); }
     sumSet('sum-alarms-body', [
       ['총 알람', fmtNum(s.total), ''],
       ['경보', fmtNum(s.alarm), s.alarm > 0 ? 'bad' : 'good']
@@ -582,36 +628,15 @@ function loadDashboardSummary() {
     setKpiTile('kpi-uptime', '—', 'muted'); sumSet('sum-uptime-body', null, 'bad', '불러오기 실패');
   });
 
-  /* 트래픽 요약(7d) */
+  /* 활성 사용자(7d) 토플라인 — 트래픽 메뉴는 폐지, KPI 수치만 유지 */
   fetchJson('/api/traffic?period=7').then(function (d) {
-    if (d.empty || !d.total) {
-      setKpiTile('kpi-users', '—', 'muted'); sumSet('sum-traffic-body', null, '', '데이터 없음'); return;
-    }
+    if (d.empty || !d.total) { setKpiTile('kpi-users', '—', 'muted'); return; }
     setKpiTile('kpi-users', fmtNum(d.n_users), '');
-    var top1 = (d.top_ep && d.top_ep.length) ? d.top_ep[0].key : '—';
-    sumSet('sum-traffic-body', [
-      ['총 요청', fmtNum(d.total), ''],
-      ['사용자(IP)', fmtNum(d.n_users), ''],
-      ['Top API', top1, '']   /* top1 은 외부유래 → textContent(sumSet 내부) */
-    ]);
   }).catch(function () {
-    setKpiTile('kpi-users', '—', 'muted'); sumSet('sum-traffic-body', null, 'bad', '불러오기 실패');
+    setKpiTile('kpi-users', '—', 'muted');
   });
 
-  /* 품질 요약(7d) */
-  fetchJson('/api/quality?period=7').then(function (d) {
-    if (d.empty) { setKpiTile('kpi-5xx', '—', 'muted'); sumSet('sum-quality-body', null, '', '데이터 없음'); return; }
-    var b = d.buckets || {};
-    var n5 = b['5xx'] || 0;
-    setKpiTile('kpi-5xx', fmtNum(n5), n5 > 0 ? 'bad' : 'muted');
-    sumSet('sum-quality-body', [
-      ['2xx', fmtNum(b['2xx'] || 0), 'good'],
-      ['4xx', fmtNum(b['4xx'] || 0), (b['4xx'] || 0) > 0 ? 'warn' : ''],
-      ['5xx', fmtNum(n5), n5 > 0 ? 'bad' : '']
-    ]);
-  }).catch(function () {
-    setKpiTile('kpi-5xx', '—', 'muted'); sumSet('sum-quality-body', null, 'bad', '불러오기 실패');
-  });
+  /* 트래픽·응답품질 요약 제거 — 메뉴 폐지(이상 징후는 인사이트, 5xx는 CDN에서 다룸) */
 
   /* DB 요약(인스턴스 배열) */
   fetchJson('/api/db').then(function (d) {
@@ -667,12 +692,12 @@ function loadDashboardSummary() {
     var totReq = 0, maxErr = null;
     dists.forEach(function (it) {
       if (it.requests != null) totReq += it.requests;
-      if (it.err_total != null && (maxErr === null || it.err_total > maxErr)) maxErr = it.err_total;
+      if (it.err_5xx != null && (maxErr === null || it.err_5xx > maxErr)) maxErr = it.err_5xx;
     });
     sumSet('sum-cdn-body', [
       ['배포', fmtNum(dists.length), ''],
       ['총 요청', fmtNum(totReq), ''],
-      ['최대 에러율', maxErr == null ? '—' : fmtFixed(maxErr, 2) + '%', (maxErr != null && maxErr > 5) ? 'bad' : '']
+      ['최대 5xx 에러율', maxErr == null ? '—' : fmtFixed(maxErr, 2) + '%', (maxErr != null && maxErr > 1) ? 'bad' : '']
     ]);
   }).catch(function () {
     sumSet('sum-cdn-body', null, 'bad', '불러오기 실패');
@@ -690,9 +715,22 @@ function loadMeta() {
     } else {
       banner.hidden = true;
     }
+    /* 사이드바 데이터 소스 연결 점 — 잡 성공 여부로 색 갱신 */
+    var jobs = d.jobs || [];
+    var awsOk = jobs.some(function (j) {
+      return ['alarms', 'uptime', 'db', 'host', 'cdn'].indexOf(j.job) >= 0 && j.last_ok_at && !j.stale;
+    });
+    var dr = jobs.filter(function (j) { return j.job === 'dooray'; })[0];
+    _srcDot('src-aws-dot', awsOk);
+    _srcDot('src-dooray-dot', !!(dr && dr.last_ok_at && !dr.stale));
   }).catch(function () {
     /* meta 실패는 배너만 미갱신(다른 패널 영향 없음) */
   });
+}
+
+function _srcDot(id, ok) {
+  var el = document.getElementById(id);
+  if (el) el.classList.toggle('off', !ok);
 }
 
 /* ── 패널 1: 알람 ──────────────────────────────────────── */
@@ -718,23 +756,59 @@ function loadAlarms() {
       return;
     }
     var sum = d.summary || { total: 0, alarm: 0 };
+    var items = d.items || [];
     document.getElementById('alarms-summary').textContent =
-      '총 ' + sum.total + ' · 경보 ' + sum.alarm;
+      '감시 ' + sum.total + '개 · 경보 ' + sum.alarm;
 
-    /* KPI 타일 + 헤더 상태배지: 경보 0 → 초록, 1+ → 빨강 */
+    /* KPI 타일 + 헤더 상태배지 */
     if (sum.alarm > 0) {
       setKpiTile('kpi-alarms', '경보 ' + sum.alarm, 'bad');
-      setStatusPill('bad', sum.alarm + ' Alarm');
+      setStatusPill('bad', '경보 ' + sum.alarm);
     } else {
       setKpiTile('kpi-alarms', '정상', 'good');
-      setStatusPill('ok', 'Operational');
+      setStatusPill('ok', '정상');
     }
 
-    /* ALARM 0건이면 "모든 알람 정상" 배너 노출 */
-    var allClear = document.getElementById('alarm-allclear');
-    if (allClear) allClear.hidden = (sum.alarm > 0);
+    /* 현재 발생 중인 경보 요약(이벤트 중심) */
+    var statusEl = document.getElementById('alarm-status');
+    var statusTxt = document.getElementById('alarm-status-text');
+    if (statusEl) statusEl.className = 'alarm-status ' + (sum.alarm > 0 ? 'bad' : 'ok');
+    if (statusTxt) statusTxt.textContent = sum.alarm > 0
+      ? ('현재 발생 중인 경보 ' + sum.alarm + '건 — 즉시 확인이 필요합니다')
+      : '현재 발생 중인 경보 없음 · 모두 정상';
 
-    /* 정보 풍부한 알람 카드(전부 createElement + textContent, XSS 안전) */
+    /* 최근 알람 이벤트(상태 변경 시각 내림차순) */
+    var events = document.getElementById('alarm-events');
+    if (events) {
+      events.innerHTML = '';
+      var sorted = items.slice().sort(function (a, b) { return (b.state_updated || 0) - (a.state_updated || 0); });
+      if (!sorted.length) {
+        var noneEv = document.createElement('li');
+        noneEv.className = 'alarm-event-none';
+        noneEv.textContent = '최근 알람 이벤트 없음';
+        events.appendChild(noneEv);
+      }
+      sorted.slice(0, 10).forEach(function (ev) {
+        var einfo = alarmStateInfo(ev.state);
+        var eli = document.createElement('li');
+        eli.className = 'alarm-event ' + einfo.cls;
+        var tm = document.createElement('span'); tm.className = 'alarm-event-time';
+        tm.textContent = epochToKst(ev.state_updated, true);
+        var nm = document.createElement('span'); nm.className = 'alarm-event-name';
+        nm.textContent = alarmFriendly(ev.name) || ev.name;     /* 친근 이름, 없으면 원문 */
+        nm.title = ev.name;
+        var stt = document.createElement('span'); stt.className = 'alarm-event-state ' + einfo.cls;
+        stt.textContent = einfo.text;
+        eli.appendChild(tm); eli.appendChild(nm); eli.appendChild(stt);
+        events.appendChild(eli);
+      });
+    }
+
+    /* 감시 중인 알람(조건) — 접기 요약 라벨 */
+    var cfgSummary = document.getElementById('alarm-config-summary');
+    if (cfgSummary) cfgSummary.textContent = '감시 중인 알람 ' + sum.total + '개 (조건 보기)';
+
+    /* 정보 풍부한 알람 카드(조건 — 접힘 안, createElement + textContent, XSS 안전) */
     var ul = document.getElementById('alarm-list');
     ul.innerHTML = '';
     (d.items || []).forEach(function (it) {
@@ -872,7 +946,7 @@ function loadUptime() {
       renderChart('uptimeSpark_' + ep, 'uptime-spark-' + ep, {
         type: 'line',
         data: { labels: labels, datasets: [{
-          data: arr, borderColor: colorFor(ep, i), backgroundColor: 'rgba(75,145,247,0.16)',
+          data: arr, borderColor: colorFor(ep, i), backgroundColor: 'rgba(49,130,246,0.12)',
           borderWidth: 1.5, tension: 0.3, spanGaps: true, fill: true,
           pointRadius: 0, pointHoverRadius: 4, pointHitRadius: 6
         }] },
@@ -890,38 +964,7 @@ function loadUptime() {
       });
     });
 
-    /* 응답시간(avg, p95) — avg 실선+포인트, p95 점선+작은 포인트 (주 차트) */
-    var msDatasets = [];
-    eps.forEach(function (ep, i) {
-      var c = colorFor(ep, i);
-      msDatasets.push({
-        label: ep + ' avg',
-        data: mapBy(ep, 'avg'),
-        borderColor: c, backgroundColor: c, pointBackgroundColor: c,
-        borderWidth: 1.5, tension: 0.25, spanGaps: true,
-        pointRadius: 2, pointHoverRadius: 5, pointHitRadius: 8
-      });
-      msDatasets.push({
-        label: ep + ' p95',
-        data: mapBy(ep, 'p95'),
-        borderColor: c, backgroundColor: c, pointBackgroundColor: c,
-        borderWidth: 1, borderDash: [4, 3], tension: 0.25, spanGaps: true,
-        pointRadius: 1.5, pointHoverRadius: 5, pointHitRadius: 8
-      });
-    });
-    renderChart('uptimeMs', 'uptime-ms-chart', {
-      type: 'line',
-      data: { labels: labels, datasets: msDatasets },
-      options: {
-        animation: false,
-        plugins: {
-          legend: legendTop(),
-          title: { display: true, text: '응답시간 (ms)', color: TICK, font: { size: 12 } },
-          tooltip: { callbacks: { title: tsTitleCb(tsAll), label: labelUnitCb('ms') } }
-        },
-        scales: baseScales()
-      }
-    });
+    /* 응답시간(avg/p95) 차트 제거 — 가동률만 필요(avg/p95는 무의미) */
 
     setState(body, 'ok');
   }).catch(function (e) {
@@ -930,247 +973,8 @@ function loadUptime() {
   });
 }
 
-/* ── 패널 3: 트래픽·사용자 ─────────────────────────────── */
-function loadTraffic() {
-  var card = document.getElementById('panel-traffic');
-  var body = card.querySelector('.card-body');
-  fetchJson('/api/traffic?period=' + trafficPeriod).then(function (d) {
-    /* empty 또는 total===0 → 빈상태(빈 차트 렌더 금지) */
-    if (d.empty || !d.total) {
-      setState(body, 'empty');
-      /* KPI 활성 사용자 타일은 7d 기준만 반영(다른 기간 선택 시 갱신 안 함) */
-      if (trafficPeriod === 7) setKpiTile('kpi-users', '—', 'muted');
-      return;
-    }
-
-    /* KPI 스트립: 활성 사용자(7d 기준일 때만 반영) */
-    if (trafficPeriod === 7) {
-      setKpiTile('kpi-users', fmtNum(d.n_users), '');
-    }
-
-    /* KPI 숫자 — "실사용자 요청"(헬스/핑 제외) 명확화 */
-    var sumRow = document.getElementById('traffic-summary');
-    sumRow.innerHTML = '';
-    [
-      ['실사용자 요청', fmtNum(d.total), ''],
-      ['사용자(IP)', fmtNum(d.n_users), ''],
-      ['스캐너 탐침', fmtNum(d.scanner_hits), d.scanner_hits > 0 ? 'warn' : '']
-    ].forEach(function (row) {
-      var div = document.createElement('div');
-      div.className = 'kpi ' + row[2];
-      div.innerHTML = '<span class="kpi-val"></span><span class="kpi-label"></span>';
-      div.querySelector('.kpi-val').textContent = row[1];
-      div.querySelector('.kpi-label').textContent = row[0];
-      sumRow.appendChild(div);
-    });
-    /* 헬스체크/핑 제외 설명(작은 회색) */
-    if (d.health_hits !== undefined || d.total_all !== undefined) {
-      var note = document.createElement('div');
-      note.className = 'traffic-note';
-      var hh = (d.health_hits == null) ? 0 : d.health_hits;
-      var ta = (d.total_all == null) ? d.total : d.total_all;
-      note.textContent = '헬스체크·가동률 핑 ' + fmtNum(hh) + '건 제외 (전체 ' + fmtNum(ta) + '건)';
-      sumRow.appendChild(note);
-    }
-
-    /* Top API/화면 가로 막대 — 라벨(key)은 외부유래지만 Chart.js 가 canvas 에 텍스트로 그림(HTML 미주입) */
-    var topEp = d.top_ep || [];
-    if (topEp.length) {
-      var topVals = topEp.map(function (x) { return x.hits; });
-      var topMax = Math.max.apply(null, topVals);
-      renderChart('trafficTopEp', 'traffic-topep-chart', {
-        type: 'bar',
-        data: {
-          labels: topEp.map(function (x) { return x.key; }),
-          datasets: [{ label: 'hits', data: topVals, backgroundColor: C.blue, borderWidth: 0, borderRadius: 4, barThickness: 'flex', maxBarThickness: 26 }]
-        },
-        options: {
-          indexAxis: 'y',
-          animation: false,
-          plugins: {
-            legend: { display: false },
-            title: { display: true, text: 'Top API / 화면', color: TICK, font: { size: 12 } },
-            tooltip: { callbacks: { label: function (it) { return ' ' + fmtNum(it.parsed.x) + '건'; } } }
-          },
-          scales: {
-            /* 막대 끝 값 라벨 공간 확보(max 에 ~12% 여유) */
-            x: { grid: { color: GRID }, ticks: { color: TICK }, beginAtZero: true, suggestedMax: Math.ceil(topMax * 1.12) || 1 },
-            y: { grid: { display: false }, ticks: { color: TICK, font: { size: 11 } } }
-          }
-        },
-        plugins: [barValuePlugin]
-      });
-    } else if (charts.trafficTopEp) { charts.trafficTopEp.destroy(); charts.trafficTopEp = null; }
-
-    /* 시간대별 추세 면적 라인 — 청록 + 포인트 */
-    var hourly = d.hourly || [];
-    if (hourly.length) {
-      var hourEpochs = hourly.map(function (h) { return h.t; });
-      var fewPoints = hourly.length <= 12;   /* 데이터 적으면 곡률 낮춤 */
-      renderChart('trafficHourly', 'traffic-hourly-chart', {
-        type: 'line',
-        data: {
-          labels: hourly.map(function (h) { return tsLabel(h.t, trafficPeriod); }),
-          datasets: [{
-            label: '요청수',
-            data: hourly.map(function (h) { return h.count; }),
-            borderColor: C.blue, backgroundColor: 'rgba(75,145,247,0.16)',
-            pointBackgroundColor: C.blue,
-            borderWidth: 1.5, tension: fewPoints ? 0.1 : 0.25, fill: true,
-            pointRadius: 2, pointHoverRadius: 5, pointHitRadius: 8
-          }]
-        },
-        options: {
-          animation: false,
-          plugins: {
-            legend: { display: false },
-            title: { display: true, text: '시간대별 추세', color: TICK, font: { size: 12 } },
-            tooltip: { callbacks: { title: tsTitleCb(hourEpochs), label: function (it) { return ' ' + fmtNum(it.parsed.y) + '건'; } } }
-          },
-          scales: baseScales()
-        }
-      });
-    } else if (charts.trafficHourly) { charts.trafficHourly.destroy(); charts.trafficHourly = null; }
-
-    setState(body, 'ok');
-  }).catch(function (e) {
-    setState(body, 'error', e.message);
-    if (trafficPeriod === 7) setKpiTile('kpi-users', '—', 'muted');
-  });
-}
-
-/* ── 패널 4-a: 응답품질(상태코드/에러) ─────────────────── */
-var BUCKET_ORDER = ['2xx', '3xx', '4xx', '5xx', '기타'];
-var BUCKET_COLOR = { '2xx': C.ok, '3xx': C.blue, '4xx': C.amber, '5xx': C.alarm, '기타': C.gray };
-/* 상태코드 → 에러 코드 색 클래스(4xx 주황 / 5xx 빨강) */
-function errCodeCls(code) {
-  var c = parseInt(code, 10);
-  if (c >= 500) return 'c5xx';
-  if (c >= 400) return 'c4xx';
-  return '';
-}
-
-function loadQuality() {
-  var card = document.getElementById('panel-quality');
-  var sub = card.querySelector('.subsection'); /* 첫 subsection = 품질 */
-  fetchJson('/api/quality?period=' + trafficPeriod).then(function (d) {
-    if (d.empty) {
-      setState(sub, 'empty');
-      if (trafficPeriod === 7) setKpiTile('kpi-5xx', '—', 'muted');
-      return;
-    }
-
-    /* 상태코드 도넛 — buckets 합계 0 이면 빈상태(빈 차트 금지) */
-    var buckets = d.buckets || {};
-    var labels = [], data = [], colors = [], bucketTotal = 0;
-    BUCKET_ORDER.forEach(function (k) {
-      var v = buckets[k] || 0;
-      bucketTotal += v;
-      if (v > 0) { labels.push(k); data.push(v); colors.push(BUCKET_COLOR[k]); }
-    });
-
-    /* KPI 스트립: 5xx 에러(7d 기준일 때만). 0이면 muted, 1+면 빨강 */
-    if (trafficPeriod === 7) {
-      var n5xx = buckets['5xx'] || 0;
-      setKpiTile('kpi-5xx', fmtNum(n5xx), n5xx > 0 ? 'bad' : 'muted');
-    }
-
-    if (bucketTotal === 0) { setState(sub, 'empty'); return; }
-
-    /* 상태코드 합계 배지(요약 한 줄) */
-    var badges = document.getElementById('bucket-badges');
-    if (badges) {
-      badges.innerHTML = '';
-      BUCKET_ORDER.forEach(function (k) {
-        var v = buckets[k] || 0;
-        if (v === 0 && (k === '3xx' || k === '기타')) return;   /* 0이고 부차적인 건 생략 */
-        var b = document.createElement('span');
-        b.className = 'bucket-badge bk-' + (k === '기타' ? 'etc' : k);
-        var kEl = document.createElement('span'); kEl.className = 'bk-k'; kEl.textContent = k;
-        var vEl = document.createElement('span'); vEl.className = 'bk-v'; vEl.textContent = fmtNum(v);
-        b.appendChild(kEl); b.appendChild(vEl);
-        badges.appendChild(b);
-      });
-    }
-
-    /* 도넛(보조, details 안 — 작게) */
-    var donutTotal = data.reduce(function (a, b) { return a + b; }, 0);
-    if (data.length) {
-      renderChart('qualityBuckets', 'quality-buckets-chart', {
-        type: 'doughnut',
-        data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderColor: '#1b1c22', borderWidth: 2 }] },
-        options: {
-          animation: false,
-          cutout: '62%',
-          interaction: { mode: 'nearest', intersect: true },
-          plugins: {
-            legend: { display: true, position: 'right', labels: { color: C.ink, boxWidth: 12, font: { size: 12 } } },
-            title: { display: false },
-            tooltip: { callbacks: { label: function (it) {
-              var v = it.parsed;
-              var pct = donutTotal ? (v / donutTotal * 100) : 0;
-              return ' ' + it.label + ': ' + fmtNum(v) + '건 (' + fmtFixed(pct, 1) + '%)';
-            } } }
-          }
-        },
-        plugins: [donutCenterPlugin(donutTotal)]
-      });
-    } else if (charts.qualityBuckets) { charts.qualityBuckets.destroy(); charts.qualityBuckets = null; }
-
-    /* 에러 목록(메인): "코드 · URL · 건수". key 예 "401 /api/charts" 파싱 */
-    var heading = document.querySelector('.err-heading');
-    var ul = document.getElementById('top-err-list');
-    ul.innerHTML = '';
-    var topErr = d.top_err || [];
-    if (topErr.length === 0) {
-      if (heading) heading.hidden = true;
-      var none = document.createElement('li');
-      none.className = 'err-none-big';
-      none.textContent = '✓ 에러 없음';
-      ul.appendChild(none);
-    } else {
-      if (heading) heading.hidden = false;
-      topErr.forEach(function (e) {
-        var li = document.createElement('li');
-        li.className = 'err-item';
-        /* key 에서 앞 토큰이 3자리 상태코드면 분리 */
-        var key = e.key || '';
-        var m = /^(\d{3})\s+(.*)$/.exec(key);
-        var code = m ? m[1] : null;
-        var url = m ? m[2] : key;
-        var codeEl = document.createElement('span');
-        codeEl.className = 'err-code ' + (code ? errCodeCls(code) : '');
-        codeEl.textContent = code || '·';            /* 코드 textContent */
-        var urlEl = document.createElement('span');
-        urlEl.className = 'err-url';
-        urlEl.textContent = url;                       /* XSS: 외부유래 URL → textContent */
-        urlEl.title = key;
-        var hitsEl = document.createElement('span');
-        hitsEl.className = 'err-hits';
-        hitsEl.textContent = fmtNum(e.hits) + '건';
-        li.appendChild(codeEl); li.appendChild(urlEl); li.appendChild(hitsEl);
-        ul.appendChild(li);
-      });
-    }
-
-    /* 스캐너 탐침 별도 표시 */
-    var scn = document.getElementById('scanner-note');
-    if (scn) {
-      var sc = (d.scanner_hits == null) ? 0 : d.scanner_hits;
-      if (sc > 0) {
-        scn.hidden = false;
-        scn.textContent = '🤖 스캐너 탐침 ' + fmtNum(sc) + '건 (무시)';
-      } else {
-        scn.hidden = true;
-      }
-    }
-
-    setState(sub, 'ok');
-  }).catch(function (e) {
-    setState(sub, 'error', e.message);
-    if (trafficPeriod === 7) setKpiTile('kpi-5xx', '—', 'muted');
-  });
-}
+/* 트래픽·사용자 / 응답품질 패널 제거 — 메뉴 폐지(이상 징후는 insights.traffic_findings 로 표면화). */
+/* (loadTraffic·loadQuality 및 전용 헬퍼 BUCKET_ORDER/BUCKET_COLOR/errCodeCls 삭제) */
 
 /* ── 패널 4-b: DB(RDS) — /api/db (인스턴스 배열) ────────── */
 /* db_id 축약(식별 가능하게 — 앞부분 유지) */
@@ -1213,7 +1017,7 @@ function loadDb() {
       var isPrimary = (it.db_id === primaryDbId);
       var cardEl = document.createElement('button');
       cardEl.type = 'button';
-      cardEl.className = 'host-card' + (isPrimary ? ' primary' : '');
+      cardEl.className = 'host-card';   /* primary 강조 제거 — 선택된 것처럼 보여 혼란 */
       cardEl.addEventListener('click', function () { openDbModal(it, isPrimary); });
 
       /* 헤더: db_id 제목 + primary ★ */
@@ -1226,11 +1030,7 @@ function loadDb() {
       nameEl.textContent = shortDbId(it.db_id);     /* 외부유래 → textContent */
       nameEl.title = it.db_id || '';
       titleWrap.appendChild(nameEl);
-      if (isPrimary) {
-        var badge = document.createElement('span');
-        badge.className = 'host-badge'; badge.textContent = '★'; badge.title = it.db_id + ' (primary)';
-        titleWrap.appendChild(badge);
-      }
+      /* primary ★ 배지 제거 */
       head.appendChild(titleWrap);
       cardEl.appendChild(head);
 
@@ -1239,9 +1039,9 @@ function loadDb() {
       var cpuCls = (cpu != null && cpu >= 80) ? 'bad' : (cpu != null && cpu >= 60 ? 'warn' : '');
       var cpuRow = document.createElement('div'); cpuRow.className = 'host-metric';
       var cpuTop = document.createElement('div'); cpuTop.className = 'host-metric-top';
-      var cpuLab = document.createElement('span'); cpuLab.className = 'host-metric-label'; cpuLab.textContent = 'CPU 평균/최대';
+      var cpuLab = document.createElement('span'); cpuLab.className = 'host-metric-label'; cpuLab.textContent = 'CPU 사용률';
       var cpuVal = document.createElement('span'); cpuVal.className = 'host-metric-val' + (cpuCls ? ' ' + cpuCls : '');
-      cpuVal.textContent = (cpu == null ? '—' : fmtFixed(cpu, 1) + '%') + ' / ' + (it.cpu_max == null ? '—' : fmtFixed(it.cpu_max, 1) + '%');
+      cpuVal.textContent = cpuUsageText(cpu, it.cpu_max, it.cpu_max_series);
       cpuTop.appendChild(cpuLab); cpuTop.appendChild(cpuVal); cpuRow.appendChild(cpuTop);
       var bar = document.createElement('div'); bar.className = 'host-bar';
       var fill = document.createElement('div'); fill.className = 'host-bar-fill' + (cpuCls ? ' ' + cpuCls : '');
@@ -1255,7 +1055,7 @@ function loadDb() {
         var v = document.createElement('span'); v.className = 'host-row-val' + (cls ? ' ' + cls : ''); v.textContent = valText;
         r.appendChild(l); r.appendChild(v); cardEl.appendChild(r);
       }
-      metaRow('연결 (평균/최대)', fmtFixed(it.conn_avg, 0) + ' / ' + fmtFixed(it.conn_max, 0), '');
+      metaRow('연결 수', '평균 ' + fmtFixed(it.conn_avg, 0) + ' · 최고 ' + fmtFixed(it.conn_max, 0), '');
       var freeGb = (it.free_storage == null) ? null : it.free_storage / (1024 * 1024 * 1024);
       var freeCls = (freeGb != null && freeGb < 5) ? 'bad' : (freeGb != null && freeGb < 15 ? 'warn' : '');
       metaRow('여유공간', freeGb == null ? '—' : fmtFixed(freeGb, 1) + 'GB', freeCls);
@@ -1274,38 +1074,35 @@ function loadDb() {
 function openDbModal(it, isPrimary) {
   var overlay = document.getElementById('db-modal');
   if (!overlay) return;
-  document.getElementById('db-modal-title').textContent = (isPrimary ? '★ ' : '') + (it.db_id || 'RDS 인스턴스');
+  document.getElementById('db-modal-title').textContent = (it.db_id || 'RDS 인스턴스');
   document.getElementById('db-modal-sub').textContent = it.db_id || '';
 
   var meta = document.getElementById('db-modal-meta');
   meta.innerHTML = '';
   var freeGb = (it.free_storage == null) ? null : it.free_storage / (1024 * 1024 * 1024);
-  meta.appendChild(modalMetaRow('CPU 평균/최대',
-    (it.cpu_avg == null ? '—' : fmtFixed(it.cpu_avg, 1) + '%') + ' / ' + (it.cpu_max == null ? '—' : fmtFixed(it.cpu_max, 1) + '%')));
-  meta.appendChild(modalMetaRow('연결 평균/최대', fmtFixed(it.conn_avg, 0) + ' / ' + fmtFixed(it.conn_max, 0), TERM_HELP.conn));
+  meta.appendChild(modalMetaRow('CPU 사용률', cpuUsageText(it.cpu_avg, it.cpu_max)));
+  meta.appendChild(modalMetaRow('연결 수', '평균 ' + fmtFixed(it.conn_avg, 0) + ' · 최고 ' + fmtFixed(it.conn_max, 0), TERM_HELP.conn));
   meta.appendChild(modalMetaRow('여유공간', freeGb == null ? '—' : fmtFixed(freeGb, 1) + 'GB'));
   meta.appendChild(modalMetaRow('여유 메모리', it.mem_free == null ? '—' : fmtBytes(it.mem_free, 1), TERM_HELP.mem));
-  meta.appendChild(modalMetaRow('스왑', it.swap == null ? '—' : fmtBytes(it.swap, 1)));
-  meta.appendChild(modalMetaRow('읽기/쓰기 지연',
-    (it.read_lat == null ? '—' : fmtFixed(it.read_lat * 1000, 1) + 'ms') + ' / ' + (it.write_lat == null ? '—' : fmtFixed(it.write_lat * 1000, 1) + 'ms')));
-  meta.appendChild(modalMetaRow('IOPS 읽기/쓰기', fmtFixed(it.read_iops, 0) + ' / ' + fmtFixed(it.write_iops, 0), TERM_HELP.iops));
-  meta.appendChild(modalMetaRow('DBLoad 평균/최대', fmtFixed(it.dbload_avg, 2) + ' / ' + fmtFixed(it.dbload_max, 2), TERM_HELP.dbload));
-  meta.appendChild(modalMetaRow('DBLoad CPU/비CPU', fmtFixed(it.dbload_cpu, 2) + ' / ' + fmtFixed(it.dbload_noncpu, 2)));
-  meta.appendChild(modalMetaRow('디스크큐', fmtFixed(it.disk_q, 2)));
-  if (it.max_txid !== undefined) meta.appendChild(modalMetaRow('최대 TXID', it.max_txid == null ? '—' : fmtNum(it.max_txid)));
+  /* 스왑·읽기/쓰기 지연·IOPS·DBLoad·디스크큐·최대 TXID 제거 — 비전문가에게 난해 */
 
   overlay.hidden = false;
 
   /* 시계열 4종(표시 후 렌더) */
-  renderTsLine('dbDetailCpu', 'db-detail-cpu-chart',
-    it.cpu_series ? [{ name: 'CPU', points: it.cpu_series, color: C.blue }] : null,
-    { title: 'CPU %', unit: 'pct', fill: true });
+  var dCpu = [];
+  if (it.cpu_series && it.cpu_series.length) dCpu.push({ name: '평균', points: it.cpu_series, color: C.blue });
+  if (it.cpu_max_series && it.cpu_max_series.length) dCpu.push({ name: '최고(순간)', points: it.cpu_max_series, color: C.alarm });
+  renderTsLine('dbDetailCpu', 'db-detail-cpu-chart', dCpu.length ? dCpu : null,
+    { title: 'CPU % — 최근 24시간(시간별)', unit: 'pct', legend: dCpu.length > 1, fill: dCpu.length === 1 });
+  var dCpuD = [];
+  if (it.cpu_series_d && it.cpu_series_d.length) dCpuD.push({ name: '평균', points: it.cpu_series_d, color: C.blue });
+  if (it.cpu_max_series_d && it.cpu_max_series_d.length) dCpuD.push({ name: '최고', points: it.cpu_max_series_d, color: C.alarm });
+  renderTsLine('dbDetailCpuD', 'db-detail-cpud-chart', dCpuD.length ? dCpuD : null,
+    { title: 'CPU % — 최근 30일(일별)', unit: 'pct', legend: dCpuD.length > 1, fill: dCpuD.length === 1, labelPeriod: 30 });
   renderTsLine('dbDetailMem', 'db-detail-mem-chart',
-    it.mem_series ? [{ name: '여유 메모리', points: it.mem_series, color: '#3dd68c' }] : null,
+    it.mem_series ? [{ name: '여유 메모리', points: it.mem_series, color: '#6b9b7a' }] : null,
     { title: '여유 메모리 (MB)', unit: 'mb', fill: true });
-  renderTsLine('dbDetailLoad', 'db-detail-load-chart',
-    it.dbload_series ? [{ name: 'DBLoad', points: it.dbload_series, color: '#ffb020' }] : null,
-    { title: 'DBLoad', unit: '', fill: true });
+  /* DBLoad 차트 제거(전문 지표) */
   renderTsLine('dbDetailConn', 'db-detail-conn-chart',
     it.conn_series ? [{ name: '연결 수', points: it.conn_series, color: '#8b5cf6' }] : null,
     { title: '연결 수', unit: 'cnt', fill: true });
@@ -1315,7 +1112,7 @@ function closeDbModal() {
   var overlay = document.getElementById('db-modal');
   if (!overlay) return;
   overlay.hidden = true;
-  ['dbDetailCpu', 'dbDetailMem', 'dbDetailLoad', 'dbDetailConn'].forEach(function (k) {
+  ['dbDetailCpu', 'dbDetailCpuD', 'dbDetailMem', 'dbDetailConn'].forEach(function (k) {
     if (charts[k]) { charts[k].destroy(); charts[k] = null; }
   });
 }
@@ -1335,6 +1132,21 @@ function bindDbModal() {
 function shortId(id) {
   if (!id) return '—';
   return id.length > 10 ? '…' + id.slice(-8) : id;
+}
+
+/* 시계열에서 최댓값을 찍은 시각(KST) — "최고"는 언제 찍었는지가 핵심 */
+function peakTime(series) {
+  if (!series || !series.length) return null;
+  var best = null;
+  series.forEach(function (p) { if (p && p.v != null && (best === null || p.v > best.v)) best = p; });
+  return best ? epochToKst(best.t, true).slice(5) : null;   /* 연도 생략(MM-DD HH:MM) */
+}
+/* CPU 사용률 표기 — "0.2% / 2.6%"가 비율로 오해돼서 라벨 분리 + 최고치 시각 표기 */
+function cpuUsageText(avg, max, series) {
+  var a = (avg == null) ? '—' : fmtFixed(avg, 1) + '%';
+  if (max == null) return '평균 ' + a;
+  var when = peakTime(series);
+  return '평균 ' + a + ' · 최고 ' + fmtFixed(max, 1) + '%' + (when ? ' (' + when + ')' : '');
 }
 
 function loadHost() {
@@ -1361,7 +1173,7 @@ function loadHost() {
       var isPrimary = (it.instance_id === primaryId);
       var cardEl = document.createElement('button');   /* 클릭 가능 → 상세 모달 */
       cardEl.type = 'button';
-      cardEl.className = 'host-card' + (isPrimary ? ' primary' : '');
+      cardEl.className = 'host-card';   /* primary 강조 제거 — 선택된 것처럼 보여 혼란 */
       cardEl.addEventListener('click', function () { openHostModal(it, isPrimary); });
 
       /* 헤더: instance_name(역할) 제목 + primary 배지 + 상태점 */
@@ -1373,13 +1185,7 @@ function loadHost() {
       nameEl.className = 'host-name';
       nameEl.textContent = it.instance_name || shortId(it.instance_id);   /* 역할 이름 우선 */
       titleWrap.appendChild(nameEl);
-      if (isPrimary) {
-        var badge = document.createElement('span');
-        badge.className = 'host-badge';
-        badge.textContent = '★';
-        badge.title = 'dataviz-prod (primary)';
-        titleWrap.appendChild(badge);
-      }
+      /* primary ★ 배지 제거 */
       head.appendChild(titleWrap);
       /* 상태체크 점 */
       var stChk = document.createElement('span');
@@ -1393,7 +1199,7 @@ function loadHost() {
       var subParts = [];
       if (it.private_ip) subParts.push(it.private_ip);
       if (it.instance_type) subParts.push(it.instance_type);
-      subParts.push(shortId(it.instance_id));
+      if (!it.private_ip) subParts.push(shortId(it.instance_id));   /* IP 없을 때만 식별자 노출 */
       var subEl = document.createElement('div');
       subEl.className = 'host-sub';
       subEl.textContent = subParts.join(' · ');     /* 외부유래 → textContent */
@@ -1407,10 +1213,9 @@ function loadHost() {
       var cpuTop = document.createElement('div');
       cpuTop.className = 'host-metric-top';
       var cpuLab = document.createElement('span'); cpuLab.className = 'host-metric-label';
-      cpuLab.textContent = 'CPU 평균/최대';
+      cpuLab.textContent = 'CPU 사용률';
       var cpuVal = document.createElement('span'); cpuVal.className = 'host-metric-val' + (cpuCls ? ' ' + cpuCls : '');
-      cpuVal.textContent = (cpuAvg == null ? '—' : fmtFixed(cpuAvg, 1) + '%') + ' / ' +
-        (it.cpu_max == null ? '—' : fmtFixed(it.cpu_max, 1) + '%');
+      cpuVal.textContent = cpuUsageText(cpuAvg, it.cpu_max, it.cpu_max_series);
       cpuTop.appendChild(cpuLab); cpuTop.appendChild(cpuVal);
       cpuRow.appendChild(cpuTop);
       var bar = document.createElement('div'); bar.className = 'host-bar';
@@ -1426,17 +1231,7 @@ function loadHost() {
         var v = document.createElement('span'); v.className = 'host-row-val' + (cls ? ' ' + cls : ''); v.textContent = valText;
         r.appendChild(l); r.appendChild(v); cardEl.appendChild(r);
       }
-      metaRow('네트워크 In/Out', fmtBytes(it.net_in) + ' / ' + fmtBytes(it.net_out), '');
-      metaRow('EBS 읽기/쓰기', fmtBytes(it.ebs_read) + ' / ' + fmtBytes(it.ebs_write), '');
-      if (it.credit_min !== undefined && it.credit_min !== null) {
-        var crCls = it.credit_min < 20 ? 'warn' : '';
-        var crR = document.createElement('div'); crR.className = 'host-row';
-        var crL = document.createElement('span'); crL.className = 'host-row-label';
-        crL.appendChild(labelWithHelp('CPU 크레딧', TERM_HELP.credit));
-        var crV = document.createElement('span'); crV.className = 'host-row-val' + (crCls ? ' ' + crCls : '');
-        crV.textContent = fmtFixed(it.credit_min, 0);
-        crR.appendChild(crL); crR.appendChild(crV); cardEl.appendChild(crR);
-      }
+      /* 네트워크 In/Out · EBS 읽기/쓰기 · CPU 크레딧 제거 — 용어 난해·액션 불가 */
       grid.appendChild(cardEl);
     });
 
@@ -1444,7 +1239,9 @@ function loadHost() {
     var series = insts
       .filter(function (it) { return it.cpu_series && it.cpu_series.length; })
       .map(function (it, i) {
-        return { name: shortId(it.instance_id), points: it.cpu_series, color: TS_COLORS[i % TS_COLORS.length] };
+        /* 범례·툴팁은 IP 우선(없으면 역할 이름 → 마지막에 id 끝자리) — UUID 노출 방지 */
+        var label = it.private_ip || it.instance_name || shortId(it.instance_id);
+        return { name: label, points: it.cpu_series, color: TS_COLORS[i % TS_COLORS.length] };
       });
     renderTsLine('hostCpu', 'host-cpu-chart', series.length ? series : null,
       { title: '인스턴스별 CPU %', unit: 'pct', legend: true });
@@ -1476,7 +1273,7 @@ function openHostModal(it, isPrimary) {
   if (!overlay) return;
   /* 제목: 역할 이름 (+ primary ★) / 부제: 전체 instance_id */
   var titleEl = document.getElementById('host-modal-title');
-  titleEl.textContent = (isPrimary ? '★ ' : '') + (it.instance_name || it.instance_id || '인스턴스');
+  titleEl.textContent = (it.instance_name || it.instance_id || '인스턴스');
   document.getElementById('host-modal-sub').textContent = it.instance_id || '';
 
   /* 메타 그리드 */
@@ -1485,26 +1282,24 @@ function openHostModal(it, isPrimary) {
   meta.appendChild(modalMetaRow('Private IP', it.private_ip));
   meta.appendChild(modalMetaRow('타입', it.instance_type));
   meta.appendChild(modalMetaRow('상태', it.state));
-  meta.appendChild(modalMetaRow('CPU 평균/최대',
-    (it.cpu_avg == null ? '—' : fmtFixed(it.cpu_avg, 1) + '%') + ' / ' +
-    (it.cpu_max == null ? '—' : fmtFixed(it.cpu_max, 1) + '%')));
-  meta.appendChild(modalMetaRow('네트워크 In/Out', fmtBytes(it.net_in) + ' / ' + fmtBytes(it.net_out)));
-  if (it.credit_min !== undefined && it.credit_min !== null) {
-    meta.appendChild(modalMetaRow('CPU 크레딧', fmtFixed(it.credit_min, 0)));
-  }
+  meta.appendChild(modalMetaRow('CPU 사용률', cpuUsageText(it.cpu_avg, it.cpu_max)));
+  /* 네트워크·CPU크레딧 제거 — 용어 난해·액션 불가 */
 
   overlay.hidden = false;
 
   /* 시계열 차트(CPU + 네트워크 In/Out) — 모달 표시 후 렌더(가시 상태라 크기 정상) */
-  renderTsLine('hostDetailCpu', 'host-detail-cpu-chart',
-    it.cpu_series ? [{ name: 'CPU', points: it.cpu_series, color: C.blue }] : null,
-    { title: 'CPU %', unit: 'pct', fill: true });
+  var hCpu = [];
+  if (it.cpu_series && it.cpu_series.length) hCpu.push({ name: '평균', points: it.cpu_series, color: C.blue });
+  if (it.cpu_max_series && it.cpu_max_series.length) hCpu.push({ name: '최고(순간)', points: it.cpu_max_series, color: C.alarm });
+  renderTsLine('hostDetailCpu', 'host-detail-cpu-chart', hCpu.length ? hCpu : null,
+    { title: 'CPU % — 최근 24시간(시간별)', unit: 'pct', legend: hCpu.length > 1, fill: hCpu.length === 1 });
+  var hCpuD = [];
+  if (it.cpu_series_d && it.cpu_series_d.length) hCpuD.push({ name: '평균', points: it.cpu_series_d, color: C.blue });
+  if (it.cpu_max_series_d && it.cpu_max_series_d.length) hCpuD.push({ name: '최고', points: it.cpu_max_series_d, color: C.alarm });
+  renderTsLine('hostDetailCpuD', 'host-detail-cpud-chart', hCpuD.length ? hCpuD : null,
+    { title: 'CPU % — 최근 30일(일별)', unit: 'pct', legend: hCpuD.length > 1, fill: hCpuD.length === 1, labelPeriod: 30 });
 
-  var netSeries = [];
-  if (it.net_in_series && it.net_in_series.length) netSeries.push({ name: 'In', points: it.net_in_series, color: C.blue });
-  if (it.net_out_series && it.net_out_series.length) netSeries.push({ name: 'Out', points: it.net_out_series, color: '#3dd68c' });
-  renderTsLine('hostDetailNet', 'host-detail-net-chart', netSeries.length ? netSeries : null,
-    { title: '네트워크 In/Out (MB)', unit: 'mb', legend: netSeries.length > 1, fill: netSeries.length === 1 });
+  /* 네트워크 In/Out 차트 제거 — 용어 난해·액션 불가 */
 }
 
 function closeHostModal() {
@@ -1512,7 +1307,7 @@ function closeHostModal() {
   if (!overlay) return;
   overlay.hidden = true;
   if (charts.hostDetailCpu) { charts.hostDetailCpu.destroy(); charts.hostDetailCpu = null; }
-  if (charts.hostDetailNet) { charts.hostDetailNet.destroy(); charts.hostDetailNet = null; }
+  if (charts.hostDetailCpuD) { charts.hostDetailCpuD.destroy(); charts.hostDetailCpuD = null; }
 }
 
 function bindHostModal() {
@@ -1563,10 +1358,17 @@ function loadCdn() {
       }
       metaRow('요청수', fmtNum(it.requests), '');
       metaRow('다운로드/업로드', fmtBytes(it.bytes_down) + ' / ' + fmtBytes(it.bytes_up), '');
-      var e4 = it.err_4xx, e5 = it.err_5xx, et = it.err_total;
-      metaRow('4xx 에러율', e4 == null ? '—' : fmtFixed(e4, 2) + '%', (e4 != null && e4 > 5) ? 'warn' : '');
-      metaRow('5xx 에러율', e5 == null ? '—' : fmtFixed(e5, 2) + '%', (e5 != null && e5 > 1) ? 'bad' : '');
-      metaRow('전체 에러율', et == null ? '—' : fmtFixed(et, 2) + '%', (et != null && et > 5) ? 'bad' : '');
+      var e5 = it.err_5xx;
+      metaRow('5xx 서버 에러율', e5 == null ? '—' : fmtFixed(e5, 2) + '%', (e5 != null && e5 > 1) ? 'bad' : '');
+      /* 5xx 유형 분해(502/503/504) — 무슨 에러였는지. 추가 지표 미활성이면 안내 */
+      if (e5 != null && e5 > 0) {
+        var parts = [];
+        if (it.err_502 != null && it.err_502 > 0) parts.push('502 ' + fmtFixed(it.err_502, 2) + '%');
+        if (it.err_503 != null && it.err_503 > 0) parts.push('503 ' + fmtFixed(it.err_503, 2) + '%');
+        if (it.err_504 != null && it.err_504 > 0) parts.push('504 ' + fmtFixed(it.err_504, 2) + '%');
+        metaRow('5xx 유형', parts.length ? parts.join(' · ') : '추가 지표 미활성(CloudFront)', '');
+      }
+      /* 4xx·전체 에러율 제거 — 4xx는 흔한 노이즈, 전체는 4xx로 부풀려져 오해 소지 */
       grid.appendChild(cardEl);
     });
 
@@ -1577,12 +1379,8 @@ function loadCdn() {
     renderTsLine('cdnReq', 'cdn-req-chart', reqSeries.length ? reqSeries : null,
       { title: '요청수 추세', unit: 'cnt', legend: reqSeries.length > 1, fill: reqSeries.length === 1 });
 
-    /* 전체 에러율 시계열(배포별 멀티라인) */
-    var errSeries = dists
-      .filter(function (it) { return it.err_total_series && it.err_total_series.length; })
-      .map(function (it, i) { return { name: it.dist_id, points: it.err_total_series, color: TS_COLORS[i % TS_COLORS.length] }; });
-    renderTsLine('cdnErr', 'cdn-err-chart', errSeries.length ? errSeries : null,
-      { title: '에러율 추세 (%)', unit: 'pct', legend: errSeries.length > 1 });
+    /* 에러율 추세 차트 제거 — 4xx 포함 전체라 스파이크가 오해 소지(5xx 수치는 카드에 표기) */
+    if (charts.cdnErr) { charts.cdnErr.destroy(); charts.cdnErr = null; }
 
     setState(body, 'ok');
   }).catch(function (e) {
@@ -1733,23 +1531,231 @@ function bindChat() {
 /* ══ hash 라우터(클라이언트 멀티뷰) ══════════════════════
  * 라우트별: 활성 뷰만 표시 + 네비 active + 해당 뷰 데이터 로드(차트는 활성 시 생성).
  * 떠나는 뷰의 차트는 destroy 하여 숨김 컨테이너 0-크기 렌더 방지. */
-var ROUTES = ['dashboard', 'insights', 'alarms', 'uptime', 'traffic', 'quality', 'host', 'cdn', 'database'];
+/* ── 업무(Dooray): 주간 보고 ──────────────────────────────────────── */
+function _doorayEmptyText(d) {
+  return d.configured
+    ? '두레이 업무 수집 대기 중 — 잠시 후 자동으로 채워집니다.'
+    : '두레이 토큰 미설정 — 서버 환경변수 DOORAY_TOKEN 을 설정하면 표시됩니다.';
+}
+
+function loadWeekly() {
+  var card = document.getElementById('panel-weekly');
+  if (!card) return;
+  var body = card.querySelector('.card-body');
+  fetchJson('/api/dooray').then(function (d) {
+    if (d.empty) {
+      var e0 = body.querySelector('[data-state="empty"]');
+      if (e0) e0.textContent = _doorayEmptyText(d);
+      setState(body, 'empty'); return;
+    }
+    var tasks = d.tasks || [];
+    var weekName = (d.current_week || {}).name || '';
+    setText('weekly-week', weekName);
+    var note = document.getElementById('weekly-note');
+    if (note) note.textContent = (d.project_name || '파트업무진행') + ' · ' + (weekName || '이번 주') +
+      ' · 업무 ' + tasks.length + '건  ·  매일 아침 자동 갱신(해당 주간만)' +
+      (d.collected_at ? '  ·  최근 수집 ' + epochToKst(d.collected_at, true) : '');
+    var cnt = { registered: 0, working: 0, closed: 0 };
+    tasks.forEach(function (t) { var c = t.workflowClass || 'registered'; cnt[c] = (cnt[c] || 0) + 1; });
+    _renderWeekSummary(tasks, cnt);
+    var groups = _groupByTag(tasks);
+    var wrap = document.getElementById('weekly-report'); wrap.innerHTML = '';
+    groups.forEach(function (g) {
+      var grp = document.createElement('div'); grp.className = 'report-group';
+      var h = document.createElement('div'); h.className = 'report-tag'; h.textContent = '[' + g.tag + ']'; grp.appendChild(h);
+      g.tasks.forEach(function (t) {
+        var item = document.createElement('button'); item.type = 'button'; item.className = 'report-task report-task--btn';
+        var head = document.createElement('div'); head.className = 'report-task-head';
+        var s = document.createElement('span'); s.className = 'report-subj'; s.textContent = t.subject;
+        var m = document.createElement('span'); m.className = 'report-meta'; m.textContent = t.assignee || '-';
+        var sb = document.createElement('span'); sb.className = 'status-badge s-' + (t.workflowClass || 'registered'); sb.textContent = t.status || '';
+        head.appendChild(s); head.appendChild(m); head.appendChild(sb);
+        if ((t.comments && t.comments.length) || (t.body || '').trim()) {
+          var more = document.createElement('span'); more.className = 'report-hasmore';
+          more.textContent = (t.comments && t.comments.length) ? ('코멘트 ' + t.comments.length) : '상세';
+          head.appendChild(more);
+        }
+        item.appendChild(head);
+        item.addEventListener('click', function () { openTaskModal(t); });
+        grp.appendChild(item);
+      });
+      wrap.appendChild(grp);
+    });
+    if (!tasks.length) {
+      var nz = document.createElement('div'); nz.className = 'insight-none-sub';
+      nz.textContent = '이번 주 등록된 업무가 없습니다.'; wrap.appendChild(nz);
+    }
+    setState(body, 'ok');
+  }).catch(function (e) { setState(body, 'error', e.message); });
+}
+
+function _groupByTag(tasks) {
+  var m = {};
+  tasks.forEach(function (t) {
+    var keys = (t.tags && t.tags.length) ? t.tags : ['기타'];
+    keys.forEach(function (k) { (m[k] = m[k] || []).push(t); });
+  });
+  return Object.keys(m).map(function (k) { return { tag: k, tasks: m[k] }; })
+    .sort(function (a, b) {
+      if ((a.tag === '기타') !== (b.tag === '기타')) return a.tag === '기타' ? 1 : -1;
+      return (b.tasks.length - a.tasks.length) || a.tag.localeCompare(b.tag);
+    });
+}
+
+function _renderWeekSummary(tasks, cnt) {
+  var host = document.getElementById('weekly-summary'); if (!host) return; host.innerHTML = '';
+  var box = document.createElement('div'); box.className = 'week-summary';
+  var dwrap = document.createElement('div'); dwrap.className = 'chart-wrap chart-donut';
+  var cv = document.createElement('canvas'); cv.id = 'week-status-chart'; dwrap.appendChild(cv);
+  box.appendChild(dwrap);
+  var tiles = document.createElement('div'); tiles.className = 'week-status-tiles';
+  var defs = [['working', '진행', cnt.working || 0], ['closed', '완료', cnt.closed || 0], ['registered', '할 일', cnt.registered || 0]];
+  defs.forEach(function (dd) {
+    var b = document.createElement('button'); b.type = 'button'; b.className = 'status-tile status-' + dd[0];
+    var v = document.createElement('span'); v.className = 'status-tile-val'; v.textContent = dd[2];
+    var l = document.createElement('span'); l.className = 'status-tile-label'; l.textContent = dd[1] + ' · 담당자 보기';
+    b.appendChild(v); b.appendChild(l);
+    b.addEventListener('click', function () { _showAssignees(tasks, dd[0], dd[1], b, tiles); });
+    tiles.appendChild(b);
+  });
+  box.appendChild(tiles);
+  host.appendChild(box);
+  var ap = document.createElement('div'); ap.className = 'week-assignee'; ap.id = 'week-assignee'; ap.hidden = true;
+  host.appendChild(ap);
+  var tot = (cnt.working || 0) + (cnt.closed || 0) + (cnt.registered || 0);
+  renderChart('weekStatus', 'week-status-chart', {
+    type: 'doughnut',
+    data: { labels: ['진행', '완료', '할 일'], datasets: [{ data: [cnt.working || 0, cnt.closed || 0, cnt.registered || 0], backgroundColor: [C.blue, C.ok, C.gray], borderWidth: 0 }] },
+    options: {
+      cutout: '62%',
+      plugins: {
+        legend: { display: true, position: 'right', labels: { color: C.ink, boxWidth: 12, font: { size: 12 } } },
+        title: { display: true, text: '이번 주 상태 비중', color: TICK, font: { size: 12 } },
+        tooltip: { callbacks: { label: function (it) { var pct = tot ? Math.round(it.parsed / tot * 100) : 0; return ' ' + it.label + ' ' + it.parsed + '건 (' + pct + '%)'; } } }
+      }
+    }
+  });
+}
+
+function _showAssignees(tasks, cls, label, tileEl, tilesEl) {
+  var ap = document.getElementById('week-assignee'); if (!ap) return;
+  var wasActive = tileEl.classList.contains('active');
+  tilesEl.querySelectorAll('.status-tile').forEach(function (x) { x.classList.remove('active'); });
+  if (wasActive) { ap.hidden = true; return; }
+  tileEl.classList.add('active');
+  var subset = tasks.filter(function (t) { return (t.workflowClass || 'registered') === cls; });
+  var by = {};
+  subset.forEach(function (t) { (by[t.assignee] = by[t.assignee] || []).push(t); });
+  var names = Object.keys(by).sort(function (a, b) { return by[b].length - by[a].length; });
+  ap.innerHTML = '';
+  var h = document.createElement('div'); h.className = 'week-assignee-head';
+  h.textContent = label + ' ' + subset.length + '건 · 담당자 ' + names.length + '명';
+  ap.appendChild(h);
+  names.forEach(function (nm) {
+    var row = document.createElement('div'); row.className = 'assignee-row';
+    var who = document.createElement('span'); who.className = 'assignee-name'; who.textContent = nm + ' (' + by[nm].length + ')';
+    row.appendChild(who);
+    var box2 = document.createElement('div'); box2.className = 'assignee-tasks';
+    by[nm].forEach(function (t) {
+      var chip = document.createElement('button'); chip.type = 'button'; chip.className = 'task-chip-sm'; chip.textContent = t.subject;
+      chip.addEventListener('click', function () { openTaskModal(t); });
+      box2.appendChild(chip);
+    });
+    row.appendChild(box2);
+    ap.appendChild(row);
+  });
+  if (!names.length) { var nz = document.createElement('div'); nz.className = 'insight-none-sub'; nz.textContent = '해당 상태의 업무가 없습니다.'; ap.appendChild(nz); }
+  ap.hidden = false;
+}
+
+/* 인라인 마크다운(**굵게**, `코드`) — 외부유래 문자열은 textContent 로만 주입(XSS 안전) */
+function _mdInline(text, parent) {
+  var re = /(\*\*([^*]+)\*\*|`([^`]+)`)/g;
+  var last = 0, m;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) parent.appendChild(document.createTextNode(text.slice(last, m.index)));
+    if (m[2] !== undefined) { var bb = document.createElement('b'); bb.textContent = m[2]; parent.appendChild(bb); }
+    else { var cc = document.createElement('code'); cc.textContent = m[3]; parent.appendChild(cc); }
+    last = re.lastIndex;
+  }
+  if (last < text.length) parent.appendChild(document.createTextNode(text.slice(last)));
+}
+
+/* 마크다운/두레이 본문(■ 대제목 · ○◦ 중제목 · -*•o 항목 · ※ 비고)을 계층 DOM 으로 렌더 */
+function renderMarkdown(text) {
+  var root = document.createElement('div'); root.className = 'md';
+  var ul = null;
+  function flush() { if (ul) { root.appendChild(ul); ul = null; } }
+  (text || '').split('\n').forEach(function (raw) {
+    var t = raw.trim();
+    if (!t) { flush(); return; }
+    var mH1 = /^(#{1,2}\s+|■\s*|□\s*)(.*)$/.exec(t);
+    var mH2 = /^(#{3,}\s+|○\s*|◦\s*|●\s*)(.*)$/.exec(t);
+    var mNote = /^(※|☞)\s*(.*)$/.exec(t);
+    var mLi = /^([-*•]|o|ㅇ)\s+(.*)$/.exec(t);
+    if (mH1) { flush(); var h = document.createElement('div'); h.className = 'md-h'; _mdInline(mH1[2], h); root.appendChild(h); return; }
+    if (mH2) { flush(); var h2 = document.createElement('div'); h2.className = 'md-h2'; _mdInline(mH2[2], h2); root.appendChild(h2); return; }
+    if (mNote) { flush(); var nb = document.createElement('div'); nb.className = 'md-note'; _mdInline(mNote[2], nb); root.appendChild(nb); return; }
+    if (mLi) { if (!ul) { ul = document.createElement('ul'); ul.className = 'md-ul'; } var li = document.createElement('li'); _mdInline(mLi[2], li); ul.appendChild(li); return; }
+    flush(); var p = document.createElement('div'); p.className = 'md-p'; _mdInline(t, p); root.appendChild(p);
+  });
+  flush();
+  return root;
+}
+
+function openTaskModal(t) {
+  var ov = document.getElementById('task-modal'); if (!ov) return;
+  document.getElementById('task-modal-title').textContent = t.subject || '업무';
+  document.getElementById('task-modal-sub').textContent =
+    ((t.tags && t.tags.length) ? '[' + t.tags.join('] [') + ']  ' : '') + (t.assignee || '-') + ' · ' + (t.status || '');
+  var b = document.getElementById('task-modal-body'); b.innerHTML = '';
+  var sec1 = document.createElement('div'); sec1.className = 'task-sec';
+  var h1 = document.createElement('div'); h1.className = 'task-sec-h'; h1.textContent = '업무 내용'; sec1.appendChild(h1);
+  var bt = (t.body || '').trim();
+  if (bt) { sec1.appendChild(renderMarkdown(bt)); }
+  else { var n1 = document.createElement('p'); n1.className = 'task-body-line muted'; n1.textContent = '작성된 내용이 없습니다.'; sec1.appendChild(n1); }
+  b.appendChild(sec1);
+  var cs = t.comments || [];
+  var sec2 = document.createElement('div'); sec2.className = 'task-sec';
+  var h2 = document.createElement('div'); h2.className = 'task-sec-h'; h2.textContent = '코멘트 (' + cs.length + ')'; sec2.appendChild(h2);
+  cs.forEach(function (c) {
+    var cm = document.createElement('div'); cm.className = 'task-comment';
+    var ch = document.createElement('div'); ch.className = 'task-comment-head';
+    ch.textContent = (c.author || '-') + (c.at ? ' · ' + String(c.at).slice(0, 16).replace('T', ' ') : '');
+    cm.appendChild(ch);
+    cm.appendChild(renderMarkdown(c.text || ''));
+    sec2.appendChild(cm);
+  });
+  if (!cs.length) { var n2 = document.createElement('p'); n2.className = 'task-body-line muted'; n2.textContent = '코멘트가 없습니다.'; sec2.appendChild(n2); }
+  b.appendChild(sec2);
+  ov.hidden = false;
+}
+
+function closeTaskModal() { var ov = document.getElementById('task-modal'); if (ov) ov.hidden = true; }
+
+function bindTaskModal() {
+  var ov = document.getElementById('task-modal');
+  var cb = document.getElementById('task-modal-close');
+  if (cb) cb.addEventListener('click', closeTaskModal);
+  if (ov) ov.addEventListener('click', function (ev) { if (ev.target === ov) closeTaskModal(); });
+  document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') closeTaskModal(); });
+}
+
+var ROUTES = ['dashboard', 'insights', 'alarms', 'uptime', 'weekly', 'host', 'cdn', 'database'];
 var VIEW_META = {
-  dashboard: { eyebrow: 'Overview', title: 'Dashboard' },
-  insights:  { eyebrow: 'Overview', title: '운영 인사이트' },
-  alarms:    { eyebrow: 'Monitoring', title: '알람' },
-  uptime:    { eyebrow: 'Monitoring', title: '가동률·응답시간' },
-  traffic:   { eyebrow: 'Traffic', title: '트래픽·사용자' },
-  quality:   { eyebrow: 'Traffic', title: '응답품질' },
-  host:      { eyebrow: 'Infra', title: 'EC2 인스턴스' },
-  cdn:       { eyebrow: 'Infra', title: 'CloudFront CDN' },
-  database:  { eyebrow: 'Database', title: 'DB 성능' }
+  dashboard: { eyebrow: '개요', title: '대시보드' },
+  insights:  { eyebrow: '개요', title: '운영 인사이트' },
+  alarms:    { eyebrow: '모니터링', title: '알람' },
+  uptime:    { eyebrow: '모니터링', title: '가동률·응답시간' },
+  weekly:    { eyebrow: '업무', title: '주간 보고' },
+  host:      { eyebrow: '인프라', title: 'EC2 인스턴스' },
+  cdn:       { eyebrow: '인프라', title: 'CloudFront CDN' },
+  database:  { eyebrow: '데이터베이스', title: 'DB 성능' }
 };
 /* 각 라우트가 보유한 차트 key(뷰 떠날 때 destroy 대상) */
 var ROUTE_CHARTS = {
   uptime: ['uptimeMs'],
-  traffic: ['trafficTopEp', 'trafficHourly'],
-  quality: ['qualityBuckets'],
+  weekly: ['weekStatus'],
   host: ['hostCpu'],
   cdn: ['cdnReq', 'cdnErr'],
   database: []   /* DB 시계열은 인스턴스별 상세 모달에서 렌더 */
@@ -1781,8 +1787,7 @@ function loadRoute(route) {
   if (route === 'insights') { loadInsights(); return; }
   if (route === 'alarms') { loadAlarms(); return; }
   if (route === 'uptime') { loadUptime(); return; }
-  if (route === 'traffic') { loadTraffic(); return; }
-  if (route === 'quality') { loadQuality(); return; }
+  if (route === 'weekly') { loadWeekly(); return; }
   if (route === 'host') { loadHost(); return; }
   if (route === 'cdn') { loadCdn(); return; }
   if (route === 'database') { loadDb(); return; }
@@ -1840,19 +1845,11 @@ function bindRefresh() {
   });
 }
 
-/* ── 트래픽/품질 공유 재조회(활성 뷰만 차트 렌더) ──────────
- * traffic·quality 는 trafficPeriod 를 공유하지만, 숨김 뷰에 차트를
- * 생성하면 0-크기로 깨지므로 현재 활성 라우트만 로드한다.
- * (다른 뷰는 진입 시 공유된 trafficPeriod 로 로드되어 일관성 유지) */
-function reloadTrafficGroup() {
-  if (currentRoute === 'traffic') loadTraffic();
-  else if (currentRoute === 'quality') loadQuality();
-}
-
 /* ── 기간 버튼 바인딩 ──────────────────────────────────── */
+/* 현재 기간 버튼은 가동률(uptime) 그룹 1세트만 존재(트래픽 메뉴 폐지). */
 function bindPeriodButtons() {
   document.querySelectorAll('.period-btns').forEach(function (group) {
-    var kind = group.getAttribute('data-period-group'); /* 'uptime' | 'traffic' */
+    var kind = group.getAttribute('data-period-group'); /* 'uptime' */
     group.querySelectorAll('button').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var p = parseInt(btn.getAttribute('data-period'), 10);
@@ -1860,17 +1857,13 @@ function bindPeriodButtons() {
           uptimePeriod = p;
           markActive('uptime', p);
           loadUptime();
-        } else {
-          trafficPeriod = p;
-          markActive('traffic', p); /* traffic·quality 양쪽 버튼 세트 동기화 */
-          reloadTrafficGroup();
         }
       });
     });
   });
 }
 
-/* 같은 그룹의 모든 버튼 세트에서 active 동기화(traffic 은 2개 세트) */
+/* 같은 그룹의 모든 버튼 세트에서 active 동기화 */
 function markActive(kind, period) {
   document.querySelectorAll('.period-btns[data-period-group="' + kind + '"] button').forEach(function (b) {
     b.classList.toggle('active', parseInt(b.getAttribute('data-period'), 10) === period);
@@ -1885,6 +1878,7 @@ function init() {
   bindChat();
   bindHostModal();           /* EC2 상세 모달 닫기/배경/ESC */
   bindDbModal();             /* RDS 상세 모달 닫기/배경/ESC */
+  bindTaskModal();           /* 업무 상세 모달 닫기/배경/ESC */
   bindRouter();              /* 라우터 시작(초기 hash → 활성 뷰 로드) */
 
   /* 공통 메타(마지막 갱신·stale 배너) 최초 1회 */
@@ -1901,7 +1895,7 @@ function init() {
     /* alarms 는 위 loadAlarms 가 이미 갱신하므로 중복 제외 */
     if (r === 'dashboard') loadDashboard();
     else if (r !== 'alarms') loadRoute(r);
-  }, POLL.traffic);
+  }, POLL.view);
 }
 
 if (document.readyState === 'loading') {

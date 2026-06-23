@@ -40,6 +40,7 @@ _JOB_INTERVALS = {
     "db": config.DB_INTERVAL,
     "host": config.HOST_INTERVAL,
     "cdn": config.CDN_INTERVAL,
+    "dooray": config.DOORAY_INTERVAL,
 }
 
 
@@ -246,7 +247,8 @@ def api_quality(period: int = Query(7)):
 
 
 # ── 패널 4: DB(계정 전체 RDS 인스턴스) ───────────────────────────────
-_DB_SERIES_KEYS = ("cpu_series", "mem_series", "dbload_series", "conn_series")
+_DB_SERIES_KEYS = ("cpu_series", "cpu_max_series", "cpu_series_d", "cpu_max_series_d",
+                   "mem_series", "dbload_series", "conn_series")
 
 
 @app.get("/api/db")
@@ -299,7 +301,10 @@ def api_host():
         "ebs_write": it.get("ebs_write"),
         "credit_min": it.get("credit_min"),
         "status_failed": it.get("status_failed"),
-        "cpu_series": _series(it.get("cpu_series")),        # 클릭 상세용 시계열 3종
+        "cpu_series": _series(it.get("cpu_series")),          # 평균 CPU(24h 시간별)
+        "cpu_max_series": _series(it.get("cpu_max_series")),  # 최고 CPU(24h 시간별)
+        "cpu_series_d": _series(it.get("cpu_series_d")),      # 평균 CPU(30일 일별)
+        "cpu_max_series_d": _series(it.get("cpu_max_series_d")),  # 최고 CPU(30일 일별)
         "net_in_series": _series(it.get("net_in_series")),
         "net_out_series": _series(it.get("net_out_series")),
     } for it in raw_instances]
@@ -329,6 +334,9 @@ def api_cdn():
         "err_4xx": d.get("err_4xx"),        # % 값
         "err_5xx": d.get("err_5xx"),
         "err_total": d.get("err_total"),
+        "err_502": d.get("err_502"),        # 5xx 유형 분해(추가 지표 — 미활성이면 None)
+        "err_503": d.get("err_503"),
+        "err_504": d.get("err_504"),
         "requests_series": _series(d.get("requests_series")),
         "err_total_series": _series(d.get("err_total_series")),
     } for d in raw_dists]
@@ -337,6 +345,20 @@ def api_cdn():
         "distributions": distributions,
         "collected_at": p.get("collected_at", snap.get("collected_at")),
     }
+
+
+# ── 패널: Dooray 업무(주간보고 + 업무 인사이트) ──────────────────────
+@app.get("/api/dooray")
+def api_dooray():
+    snap = storage.get_dooray()
+    if snap is None:
+        # configured=False → 토큰 미설정 / True → 토큰은 있으나 아직 수집 전
+        return {"empty": True, "configured": bool(config.DOORAY_TOKEN)}
+    p = snap["payload"]
+    p["empty"] = False
+    p["configured"] = True
+    p.setdefault("collected_at", snap.get("collected_at"))
+    return p
 
 
 # ── 인사이트: 룰 탐지 findings + AI 종합 코멘트 ───────────────────────

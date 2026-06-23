@@ -376,6 +376,15 @@ def ec2_metrics(cw, t0, t1, iid):
     # 시계열 3종(cpu + net in/out). 클릭 상세용. ebs 는 요약값만(payload 관리). period=3600.
     out["cpu_series"] = metric_series(cw, "AWS/EC2", "CPUUtilization", dims,
                                       "Average", t0, t1)
+    # 시간별 최고 CPU(Maximum) — 순간 피크(예: 99%)를 차트에서 보이게(평균엔 묻힘)
+    out["cpu_max_series"] = metric_series(cw, "AWS/EC2", "CPUUtilization", dims,
+                                          "Maximum", t0, t1)
+    # 최근 30일 일별(평균/최고) — "어느 날" 패턴 모니터링용
+    t0_d = t1 - 30 * 86400
+    out["cpu_series_d"] = metric_series(cw, "AWS/EC2", "CPUUtilization", dims,
+                                        "Average", t0_d, t1, period=86400)
+    out["cpu_max_series_d"] = metric_series(cw, "AWS/EC2", "CPUUtilization", dims,
+                                            "Maximum", t0_d, t1, period=86400)
     out["net_in_series"] = metric_series(cw, "AWS/EC2", "NetworkIn", dims,
                                          "Sum", t0, t1)
     out["net_out_series"] = metric_series(cw, "AWS/EC2", "NetworkOut", dims,
@@ -431,6 +440,15 @@ def rds_extended(cw, t0, t1, dbid="gseed-db"):
     # 3) 시계열(차트용, period=3600)
     out["cpu_series"] = metric_series(cw, "AWS/RDS", "CPUUtilization", dims,
                                       "Average", t0, t1)
+    # 시간별 최고 CPU(Maximum) — 순간 피크를 차트에서 보이게
+    out["cpu_max_series"] = metric_series(cw, "AWS/RDS", "CPUUtilization", dims,
+                                          "Maximum", t0, t1)
+    # 최근 30일 일별(평균/최고)
+    t0_d = t1 - 30 * 86400
+    out["cpu_series_d"] = metric_series(cw, "AWS/RDS", "CPUUtilization", dims,
+                                        "Average", t0_d, t1, period=86400)
+    out["cpu_max_series_d"] = metric_series(cw, "AWS/RDS", "CPUUtilization", dims,
+                                            "Maximum", t0_d, t1, period=86400)
     out["mem_series"] = metric_series(cw, "AWS/RDS", "FreeableMemory", dims,
                                       "Average", t0, t1)
     out["dbload_series"] = metric_series(cw, "AWS/RDS", "DBLoad", dims,
@@ -481,6 +499,10 @@ def cloudfront_metrics(cwe, t0, t1, dist):
         "err_4xx": ("4xxErrorRate", "Average"),
         "err_5xx": ("5xxErrorRate", "Average"),
         "err_total": ("TotalErrorRate", "Average"),
+        # 5xx 유형 분해 — CloudFront '추가 지표' 활성 시에만 값 존재(미활성이면 None)
+        "err_502": ("502ErrorRate", "Average"),
+        "err_503": ("503ErrorRate", "Average"),
+        "err_504": ("504ErrorRate", "Average"),
     }
     out = {"dist_id": dist}
     out.update({k: None for k in wanted})

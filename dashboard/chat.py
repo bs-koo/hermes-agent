@@ -18,9 +18,20 @@ from dashboard import config, storage
 GEMINI_URL = ("https://generativelanguage.googleapis.com/v1beta/models/"
               "{model}:generateContent?key={key}")
 
+# 답변 말투·형식 강제 규칙(모든 답변 공통). 제공자(Gemini/기타) 무관하게 적용.
+ANSWER_RULES = (
+    "[답변 규칙 — 반드시 준수]\n"
+    "1) 반드시 한국어로만 답한다.\n"
+    "2) 항상 정중한 존댓말(~입니다/~합니다체)을 쓴다.\n"
+    "3) 운영 엔지니어처럼 전문적이고 명확한 어조로 답한다. 군더더기·감탄사·이모지·과장은 쓰지 않는다.\n"
+    "4) 제공된 '현재 수집 데이터'의 사실·수치만 근거로 답한다. 데이터에 없으면 지어내지 말고 "
+    "'수집된 데이터에 없습니다'라고 답한다(추측 금지).\n"
+    "5) 수치는 값·단위·기준 시점을 구체적으로 밝히고, 가능하면 근거가 된 지표를 함께 제시한다.\n"
+    "6) 핵심부터 간결하게 답한다.")
+
 SYSTEM_PROMPT = (
-    "너는 dataviz-prod 운영 모니터링 보조다. 아래 현재 수집 데이터만 근거로 "
-    "한국어로 간결히 답하라. 데이터에 없는 건 모른다고 답하라.")
+    "너는 dataviz-prod 운영 모니터링 전문가 보조다. "
+    "아래 현재 수집 데이터만 근거로 답한다.\n" + ANSWER_RULES)
 
 
 # ── KST 시각 ──────────────────────────────────────────────────────────
@@ -136,7 +147,10 @@ def _gemini_call(prompt, max_tokens=800, temperature=0.2):
 
     body = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": temperature, "maxOutputTokens": max_tokens},
+        "generationConfig": {"temperature": temperature, "maxOutputTokens": max_tokens,
+                             # Gemini 2.5 Flash는 thinking 모델 — thinking 토큰이 출력 예산을
+                             # 먹어 답변이 중간에 잘린다. 요약 작업엔 thinking 불필요 → 끔.
+                             "thinkingConfig": {"thinkingBudget": 0}},
     }, ensure_ascii=False).encode("utf-8")
 
     url = GEMINI_URL.format(model=config.GEMINI_MODEL, key=key)
@@ -188,9 +202,10 @@ def answer_question(question):
 # ── 인사이트 AI 설명(룰 findings → 우선순위·원인·조치) ────────────────
 INSIGHT_PROMPT = (
     "너는 dataviz-prod 운영 모니터링 분석가다. 아래는 룰 엔진이 탐지한 '주목 신호' 목록이다. "
-    "이 목록에 있는 사실만 근거로, 운영자가 지금 무엇을 먼저 봐야 하는지 한국어로 3~5문장으로 요약하라. "
+    "이 목록에 있는 사실만 근거로, 운영자가 지금 무엇을 먼저 봐야 하는지 "
+    "한국어 존댓말(~입니다체)로, 전문적이고 명확한 어조로 3~5문장으로 요약하라. "
     "우선순위(가장 급한 것 먼저), 가능한 원인, 권장 조치를 간단히 제시하라. "
-    "목록에 없는 수치·리소스·원인을 지어내지 마라(환각 금지). "
+    "목록에 없는 수치·리소스·원인을 지어내지 마라(환각 금지). 감탄사·이모지·과장은 쓰지 마라. "
     "불릿 없이 자연스러운 문단으로 작성하라.")
 
 # 단일 워커 전제 모듈 캐시(findings 동일 시 Gemini 재호출 회피)
@@ -198,8 +213,11 @@ _INSIGHT_CACHE = {"key": None, "text": None}
 
 
 def _findings_key(findings):
-    return tuple((f.get("severity"), f.get("area"), f.get("title"),
-                  f.get("evidence")) for f in findings)
+    # 근거 수치(evidence)는 매 수집마다 미세 변동(예: 5xx 1.39→1.40%)하므로 키에서 제외한다.
+    # '신호 집합'(심각도·영역·제목)이 바뀔 때만 재생성 → 메뉴 방문·수치 변동마다 Gemini 재호출 방지.
+    return tuple(sorted(
+        (f.get("severity") or "", f.get("area") or "", f.get("title") or "")
+        for f in findings))
 
 
 def insight_comment(findings, summary=None):
@@ -219,7 +237,7 @@ def insight_comment(findings, summary=None):
         lines.append(f"- [{f.get('severity')}] {f.get('area')} · "
                      f"{f.get('title')} ({f.get('evidence')})")
     prompt = f"{INSIGHT_PROMPT}\n\n[탐지된 신호]\n" + "\n".join(lines)
-    res = _gemini_call(prompt, max_tokens=600)
+    res = _gemini_call(prompt, max_tokens=1024)
     text = res.get("answer")
     if not text:
         return None  # 실패는 캐시하지 않음(다음 요청서 재시도)

@@ -47,6 +47,7 @@ def _collect(now):
                 "dist_id": dist,
                 "requests": None, "bytes_down": None, "bytes_up": None,
                 "err_4xx": None, "err_5xx": None, "err_total": None,
+                "err_502": None, "err_503": None, "err_504": None,
                 "requests_series": [], "err_total_series": [],
                 "error": True,
             })

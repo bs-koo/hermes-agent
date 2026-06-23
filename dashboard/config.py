@@ -39,3 +39,12 @@ UPTIME_CSV = os.environ.get("UPTIME_CSV", _DEFAULT_UPTIME_CSV)
 # GEMINI_API_KEY 우선, 없으면 GOOGLE_API_KEY 흡수(.env 로 주입).
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+
+# ── Dooray(업무 보고/인사이트) ────────────────────────────────────────
+# 민간 https://api.dooray.com / 공공 https://api.gov-dooray.com / 금융 https://api.dooray.co.kr
+# DOORAY_TOKEN 은 개인 액세스 토큰 "id:secret"(.env/컨테이너 env 주입, 평문·로그 금지).
+DOORAY_BASE = os.environ.get("DOORAY_BASE", "https://api.dooray.com").rstrip("/")
+DOORAY_TOKEN = os.environ.get("DOORAY_TOKEN")
+# 기본값 = "파트업무진행" 프로젝트 id(데이터플랫폼 파트 공유업무일지).
+DOORAY_PROJECT_ID = os.environ.get("DOORAY_PROJECT_ID", "3964593156097643853")
+DOORAY_INTERVAL = int(os.environ.get("DOORAY_INTERVAL", "3600"))  # 1시간(업무는 자주 안 변함)

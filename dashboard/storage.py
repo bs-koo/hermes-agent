@@ -72,6 +72,11 @@ def init_db():
           payload_json TEXT NOT NULL,
           collected_at INTEGER NOT NULL);
 
+        CREATE TABLE IF NOT EXISTS dooray_snapshot (
+          id INTEGER PRIMARY KEY CHECK (id=1),
+          payload_json TEXT NOT NULL,
+          collected_at INTEGER NOT NULL);
+
         CREATE TABLE IF NOT EXISTS collect_meta (
           job TEXT PRIMARY KEY,
           last_ok_at INTEGER,
@@ -220,6 +225,35 @@ def replace_cdn_snapshot(payload_json, at):
 
 
 # ── 수집 메타(잡별 상태) ──────────────────────────────────────────────
+def replace_dooray_snapshot(payload_json, at):
+    """Dooray 업무 스냅샷(id=1 단일행)을 교체한다."""
+    conn = connect()
+    try:
+        conn.execute("""
+            INSERT INTO dooray_snapshot (id, payload_json, collected_at)
+            VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              payload_json=excluded.payload_json,
+              collected_at=excluded.collected_at
+        """, (payload_json, at))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_dooray():
+    """Dooray 업무 스냅샷(id=1)을 {payload, collected_at} 로 반환. 없으면 None."""
+    conn = connect()
+    try:
+        cur = conn.execute("SELECT payload_json, collected_at FROM dooray_snapshot WHERE id = 1")
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return {"payload": json.loads(row["payload_json"]), "collected_at": row["collected_at"]}
+    finally:
+        conn.close()
+
+
 def set_collect_meta(job, ok, error=None, at=None):
     """잡 실행 결과를 기록한다. last_run_at 은 항상, last_ok_at 은 ok 일 때만 갱신."""
     if at is None:
