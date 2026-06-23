@@ -31,6 +31,8 @@ dashboard.db-shm
 .playwright-mcp/
 dashboard-*.png
 /*.png
+/*.jpeg
+/*.jpg
 
 # ── OS ──
 Thumbs.db
