@@ -11,7 +11,7 @@ import time
 import threading
 
 from dashboard import config, storage
-from dashboard.collectors import alarms, uptime, traffic, db, ec2, cloudfront, dooray
+from dashboard.collectors import alarms, uptime, traffic, db, ec2, cloudfront, dooray, gcal
 
 TICK = 60          # 루프 점검 주기(초)
 PURGE_INTERVAL = 24 * 3600  # 하루 1회 purge
@@ -31,6 +31,7 @@ class Scheduler:
             ("host", config.HOST_INTERVAL, ec2.run),
             ("cdn", config.CDN_INTERVAL, cloudfront.run),
             ("dooray", config.DOORAY_INTERVAL, dooray.run),
+            ("gcal", config.GCAL_INTERVAL, gcal.run),
         ]
         self.stop_event = threading.Event()
         self._thread = None

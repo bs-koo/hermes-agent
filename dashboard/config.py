@@ -48,3 +48,11 @@ DOORAY_TOKEN = os.environ.get("DOORAY_TOKEN")
 # 기본값 = "파트업무진행" 프로젝트 id(데이터플랫폼 파트 공유업무일지).
 DOORAY_PROJECT_ID = os.environ.get("DOORAY_PROJECT_ID", "3964593156097643853")
 DOORAY_INTERVAL = int(os.environ.get("DOORAY_INTERVAL", "3600"))  # 1시간(업무는 자주 안 변함)
+
+# ── Google Calendar(사업부 업무 일정, iCal 비밀 주소) ─────────────────
+# GCAL_ICS_URL = 구글 캘린더 설정 > "iCal 형식의 비공개 주소"(자격증명 — .env/env 주입,
+# 평문·로그 금지). 미설정이면 일정 수집을 건너뛴다(빈 상태).
+GCAL_ICS_URL = os.environ.get("GCAL_ICS_URL", "").strip()          # 업무 일정 캘린더
+GCAL_ATTEND_ICS_URL = os.environ.get("GCAL_ATTEND_ICS_URL", "").strip()  # 근태(연차·반차·외근) 캘린더
+GCAL_INTERVAL = int(os.environ.get("GCAL_INTERVAL", "1800"))     # 30분
+GCAL_WINDOW_DAYS = int(os.environ.get("GCAL_WINDOW_DAYS", "45"))  # 다가오는 N일(월간 달력 커버)

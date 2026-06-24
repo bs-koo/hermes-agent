@@ -14,23 +14,28 @@
     <!-- ══ 좌측 사이드바 네비 ══ -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-logo">
-        <span class="logo-title">Hermes</span>
-        <span class="logo-badge">운영</span>
+        <span class="logo-mark" aria-hidden="true">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l5-9 4 6 3-4 4 7"/></svg>
+        </span>
+        <span class="logo-title">GX 업무 비서</span>
       </div>
 
       <nav class="nav" id="nav">
-        <div class="nav-domain">AWS 운영</div>
+        <div class="nav-domain">개요</div>
         <div class="nav-group">
-          <div class="nav-label">개요</div>
           <a class="nav-item" href="#/dashboard" data-route="dashboard">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M3 3h8v8H3V3zm10 0h8v5h-8V3zM3 13h8v8H3v-8zm10 3h8v5h-8v-5z"/></svg>
             </span>Dashboard
           </a>
+        </div>
+        <div class="nav-domain nav-domain--aws">AWS</div>
+        <div class="nav-group">
           <a class="nav-item" href="#/insights" data-route="insights">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M12 2a7 7 0 00-4 12.7V17a1 1 0 001 1h6a1 1 0 001-1v-2.3A7 7 0 0012 2zm-2 19a1 1 0 001 1h2a1 1 0 001-1v-1h-4v1z"/></svg>
-            </span>인사이트
+            </span><span class="nav-text">인사이트</span>
+            <span class="nav-badge" id="nav-insight-badge" hidden>0</span>
           </a>
         </div>
         <div class="nav-group">
@@ -64,13 +69,31 @@
             </span>DB 성능
           </a>
         </div>
-        <div class="nav-domain nav-domain--work">업무</div>
+        <div class="nav-domain nav-domain--work">Dooray</div>
         <div class="nav-group">
-          <div class="nav-label">Dooray</div>
+          <a class="nav-item" href="#/tasks" data-route="tasks">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></svg>
+            </span><span class="nav-text">업무 현황</span>
+          </a>
           <a class="nav-item" href="#/weekly" data-route="weekly">
             <span class="nav-icon" aria-hidden="true">
               <svg viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M6 2h8l5 5v13a1 1 0 01-1 1H6a1 1 0 01-1-1V3a1 1 0 011-1zm7 1.6V8h4.4L13 3.6zM8 12h8v1.5H8V12zm0 3.2h8v1.5H8v-1.5zM8 8.8h4v1.5H8V8.8z"/></svg>
-            </span>주간 보고
+            </span><span class="nav-text">주간 보고</span>
+          </a>
+          <a class="nav-item" href="#/monthly" data-route="monthly">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 5.5h16a1 1 0 011 1V20a1 1 0 01-1 1H4a1 1 0 01-1-1V6.5a1 1 0 011-1zM3 10h18M8 3v4M16 3v4"/></svg>
+            </span><span class="nav-text">월간 리포트</span>
+          </a>
+        </div>
+
+        <div class="nav-domain nav-domain--cal">Google Calendar</div>
+        <div class="nav-group">
+          <a class="nav-item" href="#/calendar" data-route="calendar">
+            <span class="nav-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 5.5h16a1 1 0 011 1V20a1 1 0 01-1 1H4a1 1 0 01-1-1V6.5a1 1 0 011-1zM3 10h18M8 3v4M16 3v4"/></svg>
+            </span><span class="nav-text">본부 일정</span>
           </a>
         </div>
       </nav>
@@ -79,12 +102,12 @@
         <div class="src-row">
           <span class="src-dot" id="src-aws-dot"></span>
           <span class="src-name">AWS</span>
-          <span class="src-sub">ap-northeast-2</span>
+          <span class="src-sub">EC2 · CDN · RDS · 알람</span>
         </div>
         <div class="src-row">
           <span class="src-dot" id="src-dooray-dot"></span>
           <span class="src-name">Dooray</span>
-          <span class="src-sub">파트업무진행</span>
+          <span class="src-sub">파트업무진행 주간업무</span>
         </div>
       </div>
     </aside>
@@ -122,6 +145,7 @@
           <span class="insight-summary-counts">
             <span class="insight-count crit">위험 <b id="dash-cnt-crit">—</b></span>
             <span class="insight-count warn">주의 <b id="dash-cnt-warn">—</b></span>
+            <span class="insight-count">정보 <b id="dash-cnt-info">—</b></span>
           </span>
         </div>
 
@@ -131,63 +155,87 @@
           <ul class="insight-list" id="dash-attention-list"></ul>
         </div>
 
-        <!-- 전체 지표(접기) — 정상은 숨기고 필요 시 펼침 -->
-        <section class="metrics-section" id="dash-normal-fold">
-          <div class="metrics-head">전체 지표</div>
-          <div class="normal-body">
-        <!-- KPI 요약 스트립 -->
-        <div class="kpi-strip" id="kpi-strip">
-          <button type="button" class="kpi-tile" data-route-to="alarms" id="kpi-alarms">
-            <span class="kpi-tile-val">—</span>
-            <span class="kpi-tile-label">알람</span>
-          </button>
-          <button type="button" class="kpi-tile" data-route-to="uptime" id="kpi-uptime">
-            <span class="kpi-tile-val">—</span>
-            <span class="kpi-tile-label">가동률 24h</span>
-          </button>
-          <div class="kpi-tile kpi-tile--static" id="kpi-users">
-            <span class="kpi-tile-val">—</span>
-            <span class="kpi-tile-label">활성 사용자 7d</span>
+        <!-- ════ ● AWS 운영 (핵심지표 + 추세 + 서비스 카드) ════ -->
+        <section class="metrics-section domain-section">
+          <div class="metrics-head metrics-head--domain"><span class="dh-dot dh-aws"></span>AWS 운영</div>
+          <div class="metrics-sub">핵심 지표</div>
+          <div class="kpi-strip" id="kpi-strip">
+            <button type="button" class="kpi-tile" data-route-to="alarms" id="kpi-alarms">
+              <span class="kpi-tile-label">알람 상태</span>
+              <span class="kpi-tile-val">—</span>
+              <span class="kpi-tile-sub" id="kpi-alarms-sub">감시 —</span>
+            </button>
+            <button type="button" class="kpi-tile" data-route-to="uptime" id="kpi-uptime">
+              <span class="kpi-tile-label">가동률 · 24h</span>
+              <span class="kpi-tile-val">—</span>
+              <span class="kpi-tile-sub" id="kpi-uptime-sub">서비스 —</span>
+            </button>
+            <div class="kpi-tile kpi-tile--static" id="kpi-users">
+              <span class="kpi-tile-label">활성 사용자 · 7d</span>
+              <span class="kpi-tile-val">—</span>
+              <span class="kpi-tile-sub">고유 IP 기준</span>
+            </div>
+            <button type="button" class="kpi-tile" data-route-to="database" id="kpi-dbcpu">
+              <span class="kpi-tile-label">주 DB 평균 CPU</span>
+              <span class="kpi-tile-val">—</span>
+              <span class="kpi-tile-sub" id="kpi-dbcpu-sub">—</span>
+            </button>
           </div>
-          <button type="button" class="kpi-tile" data-route-to="database" id="kpi-dbcpu">
-            <span class="kpi-tile-val">—</span>
-            <span class="kpi-tile-label">DB CPU</span>
-          </button>
-          <!-- 5xx 에러 KPI 타일 제거(응답품질 메뉴 삭제) -->
-        </div>
-
-        <!-- 영역별 요약 미니카드 그리드 -->
-        <div class="summary-grid">
-          <!-- 알람 요약 -->
-          <button type="button" class="mini-card" data-route-to="alarms" id="sum-alarms">
-            <div class="mini-head"><span class="mini-title">알람</span><span class="mini-go">자세히 →</span></div>
-            <div class="mini-body" id="sum-alarms-body"><span class="mini-muted">로딩 중…</span></div>
-          </button>
-          <!-- 가동률 요약 -->
-          <button type="button" class="mini-card" data-route-to="uptime" id="sum-uptime">
-            <div class="mini-head"><span class="mini-title">가동률 (24h)</span><span class="mini-go">자세히 →</span></div>
-            <div class="mini-body" id="sum-uptime-body"><span class="mini-muted">로딩 중…</span></div>
-          </button>
-          <!-- 트래픽 요약 카드 제거(메뉴 폐지 — 이상 징후는 인사이트에서 표면화) -->
-          <!-- 응답품질 요약 카드 제거 -->
-          <!-- DB 요약 -->
-          <button type="button" class="mini-card" data-route-to="database" id="sum-db">
-            <div class="mini-head"><span class="mini-title">DB 성능</span><span class="mini-go">자세히 →</span></div>
-            <div class="mini-body" id="sum-db-body"><span class="mini-muted">로딩 중…</span></div>
-          </button>
-          <!-- 호스트(EC2) 요약 -->
-          <button type="button" class="mini-card" data-route-to="host" id="sum-host">
-            <div class="mini-head"><span class="mini-title">호스트 (EC2)</span><span class="mini-go">자세히 →</span></div>
-            <div class="mini-body" id="sum-host-body"><span class="mini-muted">로딩 중…</span></div>
-          </button>
-          <!-- CDN(CloudFront) 요약 -->
-          <button type="button" class="mini-card" data-route-to="cdn" id="sum-cdn">
-            <div class="mini-head"><span class="mini-title">CDN (CloudFront)</span><span class="mini-go">자세히 →</span></div>
-            <div class="mini-body" id="sum-cdn-body"><span class="mini-muted">로딩 중…</span></div>
-          </button>
-        </div>
+          <div class="metrics-sub">최근 24시간 추세</div>
+          <div class="trend-grid" id="trend-grid">
+            <div class="trend-card">
+              <div class="trend-head"><span class="trend-label">EC2 평균 CPU</span><b class="trend-val" id="trend-ec2-val">—</b></div>
+              <div class="trend-spark" id="trend-ec2-spark"></div>
+            </div>
+            <div class="trend-card">
+              <div class="trend-head"><span class="trend-label">주 DB CPU</span><b class="trend-val" id="trend-db-val">—</b></div>
+              <div class="trend-spark" id="trend-db-spark"></div>
+            </div>
+            <div class="trend-card">
+              <div class="trend-head"><span class="trend-label">CDN 요청수</span><b class="trend-val" id="trend-cdn-val">—</b></div>
+              <div class="trend-spark" id="trend-cdn-spark"></div>
+            </div>
+          </div>
+          <div class="metrics-sub">서비스별 요약</div>
+          <div class="summary-grid">
+            <button type="button" class="mini-card" data-route-to="alarms" id="sum-alarms">
+              <div class="mini-head"><span class="mini-title">알람</span><span class="mini-go">자세히 →</span></div>
+              <div class="mini-body" id="sum-alarms-body"><span class="mini-muted">로딩 중…</span></div>
+            </button>
+            <button type="button" class="mini-card" data-route-to="uptime" id="sum-uptime">
+              <div class="mini-head"><span class="mini-title">가동률 <span class="mini-title-sub">24h</span></span><span class="mini-go">자세히 →</span></div>
+              <div class="mini-body" id="sum-uptime-body"><span class="mini-muted">로딩 중…</span></div>
+            </button>
+            <button type="button" class="mini-card" data-route-to="database" id="sum-db">
+              <div class="mini-head"><span class="mini-title">DB 성능</span><span class="mini-go">자세히 →</span></div>
+              <div class="mini-body" id="sum-db-body"><span class="mini-muted">로딩 중…</span></div>
+            </button>
+            <button type="button" class="mini-card" data-route-to="host" id="sum-host">
+              <div class="mini-head"><span class="mini-title">호스트 <span class="mini-title-sub">EC2</span></span><span class="mini-go">자세히 →</span></div>
+              <div class="mini-body" id="sum-host-body"><span class="mini-muted">로딩 중…</span></div>
+            </button>
+            <button type="button" class="mini-card" data-route-to="cdn" id="sum-cdn">
+              <div class="mini-head"><span class="mini-title">CDN <span class="mini-title-sub">CloudFront</span></span><span class="mini-go">자세히 →</span></div>
+              <div class="mini-body" id="sum-cdn-body"><span class="mini-muted">로딩 중…</span></div>
+            </button>
+            <button type="button" class="mini-card" data-route-to="insights" id="sum-insights">
+              <div class="mini-head"><span class="mini-title">인사이트</span><span class="mini-go">자세히 →</span></div>
+              <div class="mini-body" id="sum-insights-body"><span class="mini-muted">로딩 중…</span></div>
+            </button>
           </div>
         </section>
+
+        <!-- ════ ● Dooray 업무 + ● 본부 일정 (한 줄에 나란히, 각 풍부한 패널) ════ -->
+        <div class="domain-row">
+          <section class="metrics-section">
+            <div class="metrics-head metrics-head--domain"><span class="dh-dot dh-dooray"></span>Dooray 업무 <span class="dh-sub">파트업무진행 · 이번 주</span><a class="domain-go" href="#/tasks">업무 현황 →</a></div>
+            <div class="dash-panel" id="dash-dooray"><span class="mini-muted">로딩 중…</span></div>
+          </section>
+          <section class="metrics-section">
+            <div class="metrics-head metrics-head--domain"><span class="dh-dot dh-cal"></span>본부 일정 <span class="dh-sub">Google Calendar · 이번 주</span><a class="domain-go" href="#/calendar">달력 →</a></div>
+            <div class="dash-panel" id="dash-cal"><span class="mini-muted">로딩 중…</span></div>
+          </section>
+        </div>
       </div>
 
       <!-- ════ 뷰: ALARMS ════ -->
@@ -377,14 +425,13 @@
         </section>
       </div>
 
-      <!-- ════ 뷰: 주간 보고(Dooray) ════ -->
-      <div class="view" id="view-weekly" data-view="weekly" hidden>
-        <section class="card" id="panel-weekly">
+      <!-- ════ 뷰: 업무 현황(Dooray, 프로젝트별 진행) ════ -->
+      <div class="view" id="view-tasks" data-view="tasks" hidden>
+        <section class="card" id="panel-tasks">
           <div class="card-head">
-            <h2>주간 보고 <span class="card-meta" id="weekly-week"></span></h2>
-            <div class="card-head-tools">
-              <button type="button" class="btn-soft" id="weekly-edit" hidden>구성 편집</button>
-              <button type="button" class="btn-soft" id="weekly-copy" hidden>복사</button>
+            <div class="card-head-main">
+              <h2>업무 현황 <span class="week-badge" id="tasks-week"></span></h2>
+              <p class="card-sub" id="tasks-note"></p>
             </div>
           </div>
           <div class="card-body">
@@ -392,10 +439,122 @@
             <div class="state-empty" data-state="empty" hidden>데이터 없음</div>
             <div class="state-error" data-state="error" hidden></div>
             <div class="state-ok" data-state="ok" hidden>
-              <div class="ts-explain" id="weekly-note"></div>
-              <div id="weekly-summary"></div>
-              <div class="report-divider">업무 목록 <span class="report-divider-hint">· 클릭하면 상세·코멘트</span></div>
-              <div id="weekly-report"></div>
+              <div id="tasks-summary"></div>
+              <div class="report-head">
+                <div class="report-head-l">
+                  <div class="report-head-title">프로젝트별 업무</div>
+                  <div class="report-head-hint">도전·개선·생존 분류 · 클릭하면 상세·히스토리</div>
+                </div>
+                <div class="report-head-tools">
+                  <button type="button" class="btn-soft js-layout-edit" id="tasks-edit" hidden>구성 편집</button>
+                </div>
+              </div>
+              <div id="tasks-report"></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ════ 뷰: 주간 보고(Dooray, 생성 → 전주 실적 양식 → 복사) ════ -->
+      <div class="view" id="view-weekly" data-view="weekly" hidden>
+        <section class="card" id="panel-weekly">
+          <div class="card-head">
+            <div class="card-head-main">
+              <h2>주간 보고 <span class="week-badge" id="weekly-week"></span></h2>
+              <p class="card-sub" id="weekly-note"></p>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="state-loading" data-state="loading"><div class="spinner"></div><span>로딩 중…</span></div>
+            <div class="state-empty" data-state="empty" hidden>데이터 없음</div>
+            <div class="state-error" data-state="error" hidden></div>
+            <div class="state-ok" data-state="ok" hidden>
+              <!-- 생성 전: 안내 + 생성 버튼 -->
+              <div class="weekly-gen" id="weekly-gen">
+                <div class="weekly-gen-icon" aria-hidden="true">📋</div>
+                <div class="weekly-gen-title">전주 실적 주간보고 만들기</div>
+                <div class="weekly-gen-desc">지금까지 수집된 이번 주 업무를 도전·개선·생존 분류에 맞춰 파트장 메일 형식으로 정리해요.</div>
+                <div class="weekly-gen-actions">
+                  <button type="button" class="btn-soft js-layout-edit" id="weekly-edit" hidden>구성 편집</button>
+                  <button type="button" class="btn-primary" id="weekly-generate">주간보고 생성</button>
+                </div>
+              </div>
+              <!-- 생성 후: 미리보기 + 복사 -->
+              <div id="weekly-preview-wrap" hidden>
+                <div class="report-head">
+                  <div class="report-head-l">
+                    <div class="report-head-title">주간보고 미리보기</div>
+                    <div class="report-head-hint">전주 실적 · 보이는 그대로 복사돼요 (기타 제외)</div>
+                  </div>
+                  <div class="report-head-tools">
+                    <button type="button" class="btn-soft js-layout-edit">구성 편집</button>
+                    <button type="button" class="btn-soft" id="weekly-regen">다시 생성</button>
+                    <button type="button" class="btn-primary" id="weekly-copy">복사</button>
+                  </div>
+                </div>
+                <div class="weekly-preview" id="weekly-preview"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ════ 뷰: 월간 리포트(Dooray, 프로젝트별 누적) ════ -->
+      <div class="view" id="view-monthly" data-view="monthly" hidden>
+        <section class="card" id="panel-monthly">
+          <div class="card-head">
+            <div class="card-head-main">
+              <h2>월간 리포트 <span class="week-badge" id="monthly-month"></span></h2>
+              <p class="card-sub" id="monthly-note"></p>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="state-loading" data-state="loading"><div class="spinner"></div><span>로딩 중…</span></div>
+            <div class="state-empty" data-state="empty" hidden>데이터 없음</div>
+            <div class="state-error" data-state="error" hidden></div>
+            <div class="state-ok" data-state="ok" hidden>
+              <div class="report-head">
+                <div class="report-head-l">
+                  <div class="report-head-title">프로젝트별 월간 실적</div>
+                  <div class="report-head-hint">매일 누적 · 도전·개선·생존 분류 · 복사 시 기타 제외</div>
+                </div>
+                <div class="report-head-tools">
+                  <select class="le-sel" id="monthly-select" aria-label="월 선택"></select>
+                  <button type="button" class="btn-soft js-layout-edit">구성 편집</button>
+                  <button type="button" class="btn-primary" id="monthly-copy">복사</button>
+                </div>
+              </div>
+              <div class="weekly-preview"><div class="wk-report" id="monthly-report"></div></div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ════ 뷰: 본부 일정(Google Calendar) ════ -->
+      <div class="view" id="view-calendar" data-view="calendar" hidden>
+        <section class="card" id="panel-calendar">
+          <div class="card-head">
+            <div class="card-head-main">
+              <h2>본부 일정 <span class="week-badge" id="cal-window"></span></h2>
+              <p class="card-sub" id="cal-note"></p>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="state-loading" data-state="loading"><div class="spinner"></div><span>로딩 중…</span></div>
+            <div class="state-empty" data-state="empty" hidden>데이터 없음</div>
+            <div class="state-error" data-state="error" hidden></div>
+            <div class="state-ok" data-state="ok" hidden>
+              <div class="cal-toolbar">
+                <div class="cal-monthnav">
+                  <button type="button" class="cal-arrow" id="cal-prev" aria-label="이전 달">‹</button>
+                  <div class="cal-month-title" id="cal-title">—</div>
+                  <button type="button" class="cal-arrow" id="cal-next" aria-label="다음 달">›</button>
+                </div>
+                <button type="button" class="cal-todaybtn" id="cal-today">오늘</button>
+              </div>
+              <div class="cal-legend" id="cal-legend"></div>
+              <div class="cal-grid" id="cal-grid"></div>
+              <div class="cal-demo-note" id="cal-demo-note" hidden>예시(데모) 일정입니다. iCal 연동(<code>GCAL_ICS_URL</code>) 후 실제 본부 일정으로 자동 교체됩니다.</div>
             </div>
           </div>
         </section>
@@ -405,7 +564,7 @@
 
     <!-- ══ RDS 인스턴스 상세 모달 ══ -->
     <div class="modal-overlay" id="db-modal" hidden>
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="db-modal-title">
+      <div class="modal modal-xl" role="dialog" aria-modal="true" aria-labelledby="db-modal-title">
         <div class="modal-head">
           <div class="modal-head-text">
             <h2 class="modal-title" id="db-modal-title">—</h2>
@@ -419,15 +578,17 @@
           <div class="modal-meta" id="db-modal-meta"></div>
           <div class="chart-wrap"><canvas id="db-detail-cpu-chart"></canvas></div>
           <div class="chart-wrap"><canvas id="db-detail-cpud-chart"></canvas></div>
-          <div class="chart-wrap"><canvas id="db-detail-mem-chart"></canvas></div>
-          <div class="chart-wrap"><canvas id="db-detail-conn-chart"></canvas></div>
+          <div class="modal-chart-grid">
+            <div class="chart-wrap"><canvas id="db-detail-mem-chart"></canvas></div>
+            <div class="chart-wrap"><canvas id="db-detail-conn-chart"></canvas></div>
+          </div>
         </div>
       </div>
     </div>
 
     <!-- ══ EC2 인스턴스 상세 모달(클릭 시 표시) ══ -->
     <div class="modal-overlay" id="host-modal" hidden>
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="host-modal-title">
+      <div class="modal modal-xl" role="dialog" aria-modal="true" aria-labelledby="host-modal-title">
         <div class="modal-head">
           <div class="modal-head-text">
             <h2 class="modal-title" id="host-modal-title">—</h2>
@@ -449,7 +610,7 @@
 
     <!-- ══ 업무 상세 모달(주간 보고 업무 클릭 시) ══ -->
     <div class="modal-overlay" id="task-modal" hidden>
-      <div class="modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
+      <div class="modal modal-xl" role="dialog" aria-modal="true" aria-labelledby="task-modal-title">
         <div class="modal-head">
           <div class="modal-head-text">
             <h2 class="modal-title" id="task-modal-title">—</h2>
@@ -507,7 +668,7 @@
         <!-- 예시 질문 칩(클릭 시 자동 전송) -->
         <div class="chat-chips" id="chat-chips">
           <button type="button" class="chat-chip" data-q="지금 알람 상태 어때?">지금 알람 상태</button>
-          <button type="button" class="chat-chip" data-q="이번주 많이 쓴 API는?">이번주 많이 쓴 API</button>
+          <button type="button" class="chat-chip" data-q="이번주 업무 진행 현황 요약해줘">이번주 업무 현황</button>
           <button type="button" class="chat-chip" data-q="DB 상태 어때?">DB 상태 어때?</button>
         </div>
       </div>

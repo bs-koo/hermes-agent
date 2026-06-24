@@ -105,6 +105,27 @@ def _pick_week(milestones, target):
 
 
 # ── 수집 본체 ─────────────────────────────────────────────────────────
+# 로그 creator 는 organizationMemberId 만 담겨 있어(이름 없음) /common/v1/members/{id}
+# 로 1회 조회해 이름을 해석한다. 수집 1회 동안 동일 ID 재조회를 막는 캐시.
+_MEMBER_NAMES = {}
+
+
+def _member_name(mid):
+    """조직멤버 ID → 표시 이름(예: '김준오'). 실패/미존재 시 None. 결과 캐시."""
+    if not mid:
+        return None
+    if mid in _MEMBER_NAMES:
+        return _MEMBER_NAMES[mid]
+    name = None
+    try:
+        r = _get(f"/common/v1/members/{mid}")
+        name = (r.get("result") or {}).get("name")
+    except Exception:  # noqa: BLE001 — 멤버 조회 실패는 작성자 '-' 로 폴백
+        name = None
+    _MEMBER_NAMES[mid] = name
+    return name
+
+
 def _comments(pid, post_id):
     """업무의 댓글/로그(사람들이 매일 적는 코멘트) → [{author, at, text}]."""
     out = []
@@ -118,7 +139,10 @@ def _comments(pid, post_id):
         if not txt:
             continue
         cr = lg.get("creator") or {}
-        author = ((cr.get("member") or {}).get("name")
+        mem = cr.get("member") or {}
+        mid = mem.get("organizationMemberId") or mem.get("id")
+        author = (_member_name(mid)
+                  or mem.get("name")
                   or (cr.get("organizationMember") or {}).get("name")
                   or cr.get("name") or "-")
         out.append({"author": author, "at": lg.get("createdAt"), "text": txt[:1500]})
@@ -232,6 +256,27 @@ def _collect(now, force=False):
         "tasks": tasks,
     }
     storage.replace_dooray_snapshot(json.dumps(payload, ensure_ascii=False), int(now))
+
+    # ── 월간 누적(주차 시작일이 속한 월에 귀속) — (month, tag, subject) upsert ──
+    # 매일 수집할 때마다 이번 주 업무를 월간 히스토리에 쌓아, 달마다 프로젝트별 실적이 누적된다.
+    month = ((cur.get("startedAt") or "")[:7] if (cur and cur.get("startedAt"))
+             else datetime.datetime.fromtimestamp(int(now) + 9 * 3600,
+                                                  datetime.timezone.utc).strftime("%Y-%m"))
+    if month:
+        week_name = (cur or {}).get("name")
+        hist = []
+        for t in tasks:
+            subj = (t.get("subject") or "").strip()
+            if not subj:
+                continue
+            for tag in (t.get("tags") or ["기타"]):
+                hist.append({
+                    "month": month, "tag": tag, "subject": subj,
+                    "status": t.get("status"), "wfclass": t.get("workflowClass"),
+                    "assignee": t.get("assignee"), "week": week_name,
+                    "body": t.get("body") or "", "last_at": int(now),
+                })
+        storage.upsert_dooray_history(hist)
 
 
 def run(now):

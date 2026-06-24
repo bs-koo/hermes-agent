@@ -425,6 +425,40 @@ def api_dooray_layout_put(body: LayoutBody):
     return {"ok": True, "layout": clean}
 
 
+# ── 월간 리포트: (month, tag, subject) 누적 → 프론트가 레이아웃으로 분류 ──
+@app.get("/api/dooray/monthly")
+def api_dooray_monthly(month: str = Query(None)):
+    months = storage.get_dooray_history_months()
+    if not months:
+        return {"empty": True, "months": []}
+    sel = month if (month in months) else months[0]
+    rows = storage.get_dooray_history(sel)
+    tasks = [{
+        "subject": r["subject"],
+        "tags": [r["tag"]],
+        "status": r["status"],
+        "workflowClass": r["wfclass"],
+        "assignee": r["assignee"],
+        "body": r["body"] or "",
+        "week": r["week"],
+    } for r in rows]
+    return {"empty": False, "month": sel, "months": months, "tasks": tasks}
+
+
+# ── 업무 일정: Google Calendar(iCal) 다가오는 일정 ───────────────────
+@app.get("/api/calendar")
+def api_calendar():
+    snap = storage.get_gcal()
+    if snap is None:
+        # configured=False → iCal URL 미설정 / True → 설정됐으나 아직 수집 전
+        return {"empty": True, "configured": bool(config.GCAL_ICS_URL)}
+    p = snap["payload"]
+    p["empty"] = False
+    p["configured"] = True
+    p.setdefault("collected_at", snap.get("collected_at"))
+    return p
+
+
 # ── 인사이트: 룰 탐지 findings + AI 종합 코멘트 ───────────────────────
 @app.get("/api/insights")
 def api_insights():

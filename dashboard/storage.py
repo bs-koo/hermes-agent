@@ -82,6 +82,24 @@ def init_db():
           layout_json TEXT NOT NULL,
           updated_at INTEGER NOT NULL);
 
+        CREATE TABLE IF NOT EXISTS gcal_snapshot (
+          id INTEGER PRIMARY KEY CHECK (id=1),
+          payload_json TEXT NOT NULL,
+          collected_at INTEGER NOT NULL);
+
+        CREATE TABLE IF NOT EXISTS dooray_task_history (
+          month TEXT NOT NULL,
+          tag TEXT NOT NULL,
+          subject TEXT NOT NULL,
+          status TEXT,
+          wfclass TEXT,
+          assignee TEXT,
+          week TEXT,
+          body TEXT,
+          first_at INTEGER,
+          last_at INTEGER,
+          PRIMARY KEY (month, tag, subject));
+
         CREATE TABLE IF NOT EXISTS collect_meta (
           job TEXT PRIMARY KEY,
           last_ok_at INTEGER,
@@ -284,6 +302,85 @@ def set_dooray_layout(layout_json, at):
               updated_at=excluded.updated_at
         """, (layout_json, at))
         conn.commit()
+    finally:
+        conn.close()
+
+
+def replace_gcal_snapshot(payload_json, at):
+    """Google Calendar 일정 스냅샷(id=1 단일행)을 교체한다."""
+    conn = connect()
+    try:
+        conn.execute("""
+            INSERT INTO gcal_snapshot (id, payload_json, collected_at)
+            VALUES (1, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+              payload_json=excluded.payload_json,
+              collected_at=excluded.collected_at
+        """, (payload_json, at))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_gcal():
+    """Google Calendar 스냅샷(id=1)을 {payload, collected_at} 로 반환. 없으면 None."""
+    conn = connect()
+    try:
+        cur = conn.execute("SELECT payload_json, collected_at FROM gcal_snapshot WHERE id = 1")
+        row = cur.fetchone()
+        if row is None:
+            return None
+        return {"payload": json.loads(row["payload_json"]), "collected_at": row["collected_at"]}
+    finally:
+        conn.close()
+
+
+def upsert_dooray_history(rows):
+    """월간 누적: (month, tag, subject) 단위로 업무를 upsert.
+    rows: [{month, tag, subject, status, wfclass, assignee, week, body, last_at}]
+    first_at 은 최초 1회만 기록(이후 보존), body 는 더 긴(완전한) 쪽을 유지."""
+    if not rows:
+        return
+    conn = connect()
+    try:
+        conn.executemany("""
+            INSERT INTO dooray_task_history
+              (month, tag, subject, status, wfclass, assignee, week, body, first_at, last_at)
+            VALUES
+              (:month, :tag, :subject, :status, :wfclass, :assignee, :week, :body, :last_at, :last_at)
+            ON CONFLICT(month, tag, subject) DO UPDATE SET
+              status=excluded.status,
+              wfclass=excluded.wfclass,
+              assignee=excluded.assignee,
+              week=excluded.week,
+              body=CASE WHEN length(COALESCE(excluded.body,'')) >= length(COALESCE(dooray_task_history.body,''))
+                        THEN excluded.body ELSE dooray_task_history.body END,
+              last_at=excluded.last_at
+        """, rows)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_dooray_history(month):
+    """해당 월(YYYY-MM)의 누적 업무 행 목록(tag·최초기록순)."""
+    conn = connect()
+    try:
+        cur = conn.execute("""
+            SELECT month, tag, subject, status, wfclass, assignee, week, body, first_at, last_at
+            FROM dooray_task_history WHERE month = ? ORDER BY tag, first_at
+        """, (month,))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def get_dooray_history_months():
+    """누적 데이터가 있는 월(YYYY-MM) 목록(최신순)."""
+    conn = connect()
+    try:
+        cur = conn.execute("SELECT DISTINCT month FROM dooray_task_history ORDER BY month DESC")
+        return [r["month"] for r in cur.fetchall()]
     finally:
         conn.close()
 

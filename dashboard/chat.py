@@ -30,8 +30,11 @@ ANSWER_RULES = (
     "6) 핵심부터 간결하게 답한다.")
 
 SYSTEM_PROMPT = (
-    "너는 dataviz-prod 운영 모니터링 전문가 보조다. "
-    "아래 현재 수집 데이터만 근거로 답한다.\n" + ANSWER_RULES)
+    "너는 dataviz-prod AWS 운영 모니터링과 데이터플랫폼파트 Dooray 주간업무, 사업부 업무 일정(Google Calendar)을 "
+    "함께 보는 전문 보조다. "
+    "아래 현재 수집 데이터(AWS 운영: 알람·가동률·DB 등 + Dooray 업무: 이번 주 과제·담당자·진행상태 + "
+    "업무 일정: 다가오는 회의·일정)만 근거로 답한다. "
+    "AWS 인프라든 업무 진행 현황이든 다가오는 일정이든 데이터에 있으면 답한다.\n" + ANSWER_RULES)
 
 
 # ── KST 시각 ──────────────────────────────────────────────────────────
@@ -124,6 +127,76 @@ def _db_ctx():
     return "\n".join(lines)
 
 
+def _dooray_ctx():
+    """Dooray '파트업무진행' 이번 주 업무 요약(프로젝트/담당자/상태/AI요약)."""
+    snap = storage.get_dooray()
+    if snap is None:
+        return "Dooray 주간업무: 데이터 없음"
+    p = snap.get("payload") or {}
+    tasks = p.get("tasks") or []
+    if not tasks:
+        return "Dooray 주간업무: 데이터 없음"
+    week = (p.get("current_week") or {}).get("name") or ""
+    proj = p.get("project_name") or "파트업무진행"
+    cnt = {"working": 0, "closed": 0, "registered": 0}
+    for t in tasks:
+        c = t.get("workflowClass") or "registered"
+        cnt[c] = cnt.get(c, 0) + 1
+    head = (f"Dooray 주간업무({proj} · {week} · 수집 "
+            f"{_kst(snap.get('collected_at') or p.get('collected_at'))}):")
+    lines = [head,
+             f"  - 업무 {len(tasks)}건 (진행 {cnt['working']} · 완료 {cnt['closed']} · 할일 {cnt['registered']})"]
+    by_tag = {}
+    for t in tasks:
+        for tag in (t.get("tags") or ["기타"]):
+            by_tag.setdefault(tag, []).append(t)
+    for tag, ts in by_tag.items():
+        lines.append(f"  [{tag}]")
+        for t in ts:
+            subj = (t.get("subject") or "").strip()
+            who = t.get("assignee") or "-"
+            st = t.get("status") or ""
+            lines.append(f"    - {subj} (담당 {who}, {st})")
+            summ = (t.get("ai_summary") or "").strip()
+            if summ:
+                lines.append(f"      요약: {summ}")
+    return "\n".join(lines)
+
+
+def _cal_cat(title, kind):
+    """일정 카테고리 분류(근태 vs 업무) — 채팅이 '오늘 휴가 누구' 등에 답하도록."""
+    t = (title or "").replace(" ", "")
+    if "오전반차" in t:
+        return "오전반차"
+    if "오후반차" in t:
+        return "오후반차"
+    if any(k in t for k in ("연차", "휴가", "반차", "월차", "경조")):
+        return "연차/휴가"
+    if any(k in t for k in ("외근", "출장", "파견")):
+        return "외근/출장"
+    return "근태" if kind == "leave" else "업무"
+
+
+def _calendar_ctx():
+    """본부 일정(Google Calendar) — 다가오는 일정 목록(근태·업무 카테고리 포함)."""
+    snap = storage.get_gcal()
+    if snap is None:
+        return "본부 일정(Google Calendar): 데이터 없음"
+    p = snap.get("payload") or {}
+    evs = p.get("events") or []
+    if not evs:
+        return "본부 일정(Google Calendar): 다가오는 일정 없음"
+    lines = [f"본부 일정(Google Calendar, 다가오는 {p.get('window_days', 14)}일 · 근태/업무 포함):"]
+    for e in evs[:40]:
+        loc = (" @" + e["location"]) if e.get("location") else ""
+        when = _kst(e.get("start"))
+        if e.get("all_day"):
+            when = when[:10] + " (종일)"
+        cat = _cal_cat(e.get("title"), e.get("kind"))
+        lines.append(f"  - [{cat}] {when} {e.get('title') or ''}{loc}")
+    return "\n".join(lines)
+
+
 def _build_context():
     """현재 수집 데이터 요약 컨텍스트(빈 DB 에서도 안전)."""
     now_kst = _kst(int(datetime.datetime.now(datetime.timezone.utc).timestamp()))
@@ -133,6 +206,8 @@ def _build_context():
         _uptime_ctx(),
         _traffic_ctx(),
         _db_ctx(),
+        _dooray_ctx(),
+        _calendar_ctx(),
     ]
     return "\n\n".join(parts)
 

@@ -124,8 +124,7 @@ def dooray_section():
     for label, goal, projs in buckets:
         if projs:
             emit(label, goal, projs)
-    if etc:
-        emit("기타", "", etc)
+    # 기타(미분류)는 전주 실적 보고에서 제외(대시보드 복사와 동일 규칙)
     out += ["🗓️ 금주 계획", "(다음 주 계획을 작성하세요)", "", "📋 기타사항", "특이사항 없음"]
     return "\n".join(out).rstrip()
 
