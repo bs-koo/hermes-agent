@@ -1904,12 +1904,29 @@ function _fmtMonth(m) {
   return p[0].slice(2) + '년 ' + p[1] + '월';
 }
 
-/* 월간 리포트 본문 렌더(금주 계획/기타사항 없이 누적 실적만) */
+/* 프로젝트(태그)별 본문 — 도전/개선/생존 버킷 없이(월간 리포트용). 많은 순, 기타 뒤 */
+function _appendReportBodyByProject(root, tasks) {
+  var byTag = _projectMap(tasks);
+  Object.keys(byTag).sort(function (a, b) {
+    if ((a === '기타') !== (b === '기타')) return a === '기타' ? 1 : -1;
+    return (byTag[b].length - byTag[a].length) || a.localeCompare(b);
+  }).forEach(function (tag) {
+    root.appendChild(_wkLine('wk-proj', tag));
+    var seen = {};
+    byTag[tag].forEach(function (t) {
+      var s = (t.subject || '').trim(); if (!s || seen[s]) return; seen[s] = 1;
+      root.appendChild(_wkLine('wk-task', 'o ' + s));
+      _bodyItems(t.body).forEach(function (ln) { root.appendChild(_wkLine('wk-sub', ln)); });
+    });
+  });
+}
+
+/* 월간 리포트 본문 렌더(프로젝트별, 버킷 없음) */
 function _renderMonthlyReport() {
   var host = document.getElementById('monthly-report'); if (!host) return;
   host.innerHTML = '';
   host.appendChild(_wkLine('wk-h1', '📋 ' + _fmtMonth(_monthlyMonth) + ' 실적'));
-  _appendReportBody(host, _monthlyTasks, _weeklyLayout);
+  _appendReportBodyByProject(host, _monthlyTasks);
 }
 
 /* 레이아웃 저장 후 활성 Dooray 뷰 재렌더 */
@@ -1955,7 +1972,7 @@ function loadMonthly() {
     if (note) {
       note.innerHTML = '';
       var ds = document.createElement('span'); ds.className = 'card-sub-desc';
-      ds.textContent = '매일 아침 수집할 때마다 이번 주 업무를 ‘주차 시작월’ 기준으로 프로젝트(도전·개선·생존)별로 누적해요. 달이 바뀌면 새 칸에 쌓이고, [복사]로 월간 실적을 메일 형식 그대로 붙여넣을 수 있어요(기타 제외).';
+      ds.textContent = '매일 아침 수집할 때마다 이번 주 업무를 ‘주차 시작월’ 기준으로 프로젝트별로 누적해요. 달이 바뀌면 새 칸에 쌓이고, [복사]로 월간 실적을 그대로 붙여넣을 수 있어요.';
       var ms = document.createElement('span'); ms.className = 'card-sub-meta';
       ms.textContent = _fmtMonth(d.month) + ' · 누적 업무 ' + _monthlyTasks.length + '건';
       note.appendChild(ds); note.appendChild(ms);
@@ -2093,16 +2110,12 @@ function _renderCalGrid() {
     dnum.textContent = day; cell.appendChild(dnum);
     (byDay[day] || []).slice(0, 4).forEach(function (e) {
       var cat = _calCat(e);
-      var chip = document.createElement('div'); chip.className = 'cal-chip cal-chip--' + cat.key + (e.all_day ? ' allday' : '');
+      var chip = document.createElement('div'); chip.className = 'cal-chip cal-chip--' + cat.key;
       chip.title = (e.all_day ? '' : (_calHm(e.start) + ' ')) + (e.title || '') + ' · ' + cat.label + (e.location ? ' @' + e.location : '');
-      if (e.all_day) {
-        chip.style.background = cat.bg; chip.style.color = cat.line;
-        chip.appendChild(document.createTextNode(e.title || ''));
-      } else {
-        var dot = document.createElement('span'); dot.className = 'cal-dot'; dot.style.background = cat.line; chip.appendChild(dot);
-        var tt = document.createElement('span'); tt.className = 'cal-chip-t'; tt.style.color = cat.line; tt.textContent = _calHm(e.start); chip.appendChild(tt);
-        chip.appendChild(document.createTextNode(e.title || ''));
-      }
+      /* 모든 일정 = 색 점 + (시간) + 제목 으로 통일 */
+      var dot = document.createElement('span'); dot.className = 'cal-dot'; dot.style.background = cat.line; chip.appendChild(dot);
+      if (!e.all_day) { var tt = document.createElement('span'); tt.className = 'cal-chip-t'; tt.style.color = cat.line; tt.textContent = _calHm(e.start); chip.appendChild(tt); }
+      chip.appendChild(document.createTextNode(e.title || ''));
       cell.appendChild(chip);
     });
     var extra = (byDay[day] || []).length - 4;
@@ -2251,7 +2264,34 @@ function _copyReport(tasks, layout, header, withPlan, btnId) {
 }
 
 function _copyWeeklyMail() { _copyReport(_weeklyTasks, _weeklyLayout, '📋 전주 실적', true, 'weekly-copy'); }
-function _copyMonthly() { _copyReport(_monthlyTasks, _weeklyLayout, '📋 ' + _fmtMonth(_monthlyMonth) + ' 실적', false, 'monthly-copy'); }
+/* 월간 리포트 복사 — 프로젝트별(도전/개선/생존 버킷 없음) */
+function _copyMonthly() {
+  var byTag = _projectMap(_monthlyTasks);
+  var tags = Object.keys(byTag).sort(function (a, b) {
+    if ((a === '기타') !== (b === '기타')) return a === '기타' ? 1 : -1;
+    return (byTag[b].length - byTag[a].length) || a.localeCompare(b);
+  });
+  var header = '📋 ' + _fmtMonth(_monthlyMonth) + ' 실적';
+  var H = ['<div style="font-family:Pretendard,\'Malgun Gothic\',sans-serif;font-size:14px;line-height:1.6">'];
+  var T = [];
+  H.push('<p style="font-weight:700">' + _esc(header) + '</p>'); T.push(header);
+  H.push('<ul>');
+  tags.forEach(function (tag) {
+    var seen = {}, list = [];
+    byTag[tag].forEach(function (t) { var s = (t.subject || '').trim(); if (s && !seen[s]) { seen[s] = 1; list.push(t); } });
+    H.push('<li><span style="font-weight:700">' + _esc(tag) + '</span>'); T.push('• ' + tag);
+    H.push('<ul>');
+    list.forEach(function (t) {
+      var s = (t.subject || '').trim(); var items = _bodyItems(t.body);
+      H.push('<li>' + _esc(s)); T.push('  o ' + s);
+      if (items.length) { H.push('<ul>'); items.forEach(function (ln) { H.push('<li>' + _esc(ln) + '</li>'); T.push('    ◦ ' + ln); }); H.push('</ul>'); }
+      H.push('</li>');
+    });
+    H.push('</ul></li>');
+  });
+  H.push('</ul></div>');
+  _writeRich(H.join(''), T.join('\n'), 'monthly-copy');
+}
 
 /* HTML+plain 동시 클립보드 쓰기(붙여넣는 곳이 리치면 불릿, plain이면 텍스트). */
 function _writeRich(html, text, btnId) {

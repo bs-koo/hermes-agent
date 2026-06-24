@@ -218,21 +218,21 @@
 
         <!-- ════ ● Dooray 업무 ════ -->
         <section class="metrics-section domain-section">
-          <div class="metrics-head metrics-head--domain"><span class="dh-dot dh-dooray"></span>Dooray 업무 <span class="dh-sub" id="dash-dooray-week">파트업무진행 · 이번 주</span><a class="domain-go" href="#/tasks">업무 현황 →</a></div>
-          <div class="dash-panel" id="dash-dooray"><span class="mini-muted">로딩 중…</span></div>
+          <div class="metrics-head metrics-head--domain"><span class="dh-dot dh-dooray"></span>Dooray 업무 <span class="dh-sub" id="dash-dooray-week">파트업무진행 · 이번 주</span></div>
+          <div class="dash-panel dash-panel--link" id="dash-dooray" data-route-to="tasks" title="클릭하면 업무 현황으로 이동"><span class="mini-muted">로딩 중…</span></div>
         </section>
 
         <!-- ════ ● 본부 일정 (근태 / 업무 일정 분리) ════ -->
         <section class="metrics-section domain-section">
-          <div class="metrics-head metrics-head--domain"><span class="dh-dot dh-cal"></span>본부 일정 <span class="dh-sub">Google Calendar · 이번 주</span><a class="domain-go" href="#/calendar">달력 →</a></div>
+          <div class="metrics-head metrics-head--domain"><span class="dh-dot dh-cal"></span>본부 일정 <span class="dh-sub">Google Calendar · 이번 주</span></div>
           <div class="cal-split">
             <div class="dash-subpanel">
               <div class="dash-subpanel-h"><span class="dh-dot" style="background:#c5473e"></span>근태 <span class="dh-sub">휴가 · 반차</span></div>
-              <div class="dash-panel" id="dash-cal-leave"><span class="mini-muted">로딩 중…</span></div>
+              <div class="dash-panel dash-panel--link" id="dash-cal-leave" data-route-to="calendar" title="클릭하면 본부 일정으로 이동"><span class="mini-muted">로딩 중…</span></div>
             </div>
             <div class="dash-subpanel">
-              <div class="dash-subpanel-h"><span class="dh-dot" style="background:#3c5a8c"></span>업무 일정 <span class="dh-sub">회의 · 과제 · 외근</span></div>
-              <div class="dash-panel" id="dash-cal-work"><span class="mini-muted">로딩 중…</span></div>
+              <div class="dash-subpanel-h"><span class="dh-dot" style="background:#3c5a8c"></span>업무 일정 <span class="dh-sub">회의 · 과제</span></div>
+              <div class="dash-panel dash-panel--link" id="dash-cal-work" data-route-to="calendar" title="클릭하면 본부 일정으로 이동"><span class="mini-muted">로딩 중…</span></div>
             </div>
           </div>
           <div class="dc-demo" id="dash-cal-note" hidden></div>
@@ -514,11 +514,10 @@
               <div class="report-head">
                 <div class="report-head-l">
                   <div class="report-head-title">프로젝트별 월간 실적</div>
-                  <div class="report-head-hint">매일 누적 · 도전·개선·생존 분류 · 복사 시 기타 제외</div>
+                  <div class="report-head-hint">매일 누적 · 프로젝트별</div>
                 </div>
                 <div class="report-head-tools">
                   <select class="le-sel" id="monthly-select" aria-label="월 선택"></select>
-                  <button type="button" class="btn-soft js-layout-edit">구성 편집</button>
                   <button type="button" class="btn-primary" id="monthly-copy">복사</button>
                 </div>
               </div>
@@ -550,8 +549,8 @@
                 </div>
                 <button type="button" class="cal-todaybtn" id="cal-today">오늘</button>
               </div>
-              <div class="cal-legend" id="cal-legend"></div>
               <div class="cal-grid" id="cal-grid"></div>
+              <div class="cal-legend" id="cal-legend"></div>
               <div class="cal-demo-note" id="cal-demo-note" hidden>예시(데모) 일정입니다. iCal 연동(<code>GCAL_ICS_URL</code>) 후 실제 본부 일정으로 자동 교체됩니다.</div>
             </div>
           </div>
@@ -650,7 +649,7 @@
           <span class="chat-head-avatar" aria-hidden="true">SQ</span>
           <div class="chat-head-text">
             <h2>김스큐 <span class="chat-online"><span class="chat-online-dot" aria-hidden="true"></span>온라인</span></h2>
-            <span class="chat-head-sub">AWS 운영·Dooray 업무·본부 일정, 무엇이든 물어보세요</span>
+            <span class="chat-head-sub">운영·업무·일정 무엇이든 물어보세요</span>
           </div>
         </div>
       </div>
