@@ -309,7 +309,7 @@ html, body {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
-  align-items: start;        /* 카드가 행 높이에 늘어나지 않게(빈 공간 정렬) */
+  align-items: stretch;      /* 같은 행 카드 높이 통일(통일성) */
 }
 @media (max-width: 1400px) { .summary-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 720px)  { .summary-grid { grid-template-columns: 1fr; } }
@@ -757,9 +757,9 @@ html, body {
   align-items: center;
   gap: 8px;
 }
-.host-title-wrap { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.host-title-wrap { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; }
 .host-name {
-  font-size: 15px; font-weight: 700; color: var(--text);
+  min-width: 0; font-size: 15px; font-weight: 700; color: var(--text);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .host-sub {
@@ -776,10 +776,20 @@ html, body {
   padding: 0;
 }
 .host-status {
-  margin-left: auto;
+  flex: 0 0 auto; margin-left: 8px;
   font-size: 11px; font-weight: 700;
   padding: 2px 9px; border-radius: 9999px;
+  white-space: nowrap;
 }
+/* CPU 사용률 블록(평균/최고 2열 + 막대) — 시각 제거, 가독성↑ */
+.host-cpu { margin-top: 2px; }
+.host-cpu-head { font-size: 12px; color: var(--muted); margin-bottom: 7px; }
+.host-cpu-stats { display: flex; gap: 24px; margin-bottom: 9px; }
+.host-stat { display: flex; flex-direction: column; gap: 2px; }
+.host-stat-l { font-size: 11px; color: var(--label); }
+.host-stat-v { font-size: 16px; font-weight: 800; color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.host-stat-v.warn { color: var(--amber); }
+.host-stat-v.bad { color: var(--alarm); }
 .host-status.ok { background: var(--ok-bg); color: var(--ok); }
 .host-status.bad { background: var(--alarm-bg); color: var(--alarm); }
 /* CPU 메트릭 + 미니 막대 */
@@ -1015,9 +1025,12 @@ html, body {
 .metrics-head { font-size: 13px; font-weight: 700; color: var(--label); letter-spacing: 0.01em; padding: 0 2px; }
 /* 대메뉴(도메인) 헤더 — 색 점 + 진한 굵은 글씨로 구분감 강화 */
 .metrics-head--domain { display: flex; align-items: center; gap: 8px; font-size: 14.5px; font-weight: 800; color: var(--text); letter-spacing: -0.01em; }
-.dh-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
-.dh-aws { background: #3c5a8c; } .dh-dooray { background: #3f8f6b; } .dh-cal { background: #be8636; }
+/* 도메인/하위 헤더 색 점 제거 — 색으로 동급처럼 보이는 문제 해소(위계는 굵기·들여쓰기로) */
+.dh-dot { display: none; }
 .dh-sub { font-size: 12px; font-weight: 500; color: var(--faint); }
+/* 도메인 하위(핵심지표·추세·요약 / 근태·업무)는 들여써서 자식임을 표현(헤더는 좌측 정렬 유지) */
+.domain-section { padding-left: 18px; }
+.domain-section > .metrics-head--domain { margin-left: -18px; }
 /* 도메인 내부 소제목(핵심 지표 / 추세 / 서비스별) */
 .metrics-sub { font-size: 12.5px; font-weight: 700; color: var(--label); padding: 0 2px; margin-top: 6px; }
 .domain-section .metrics-sub:first-of-type { margin-top: 2px; }
@@ -1039,17 +1052,22 @@ html, body {
 .dd-working .dd-tile-v { color: var(--accent); }
 .dd-closed .dd-tile-v { color: var(--ok); }
 .dd-registered .dd-tile-v { color: var(--label); }
-.dd-tile-l { font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+.dd-tile-l { font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
 .dd-projs { margin-top: 16px; }
 .dd-projs-h { font-size: 12px; font-weight: 700; color: var(--label); margin-bottom: 9px; }
 .dd-chips { display: flex; flex-wrap: wrap; gap: 7px; }
 .dd-chip { font-size: 12px; color: var(--muted); background: var(--bg-elev); border: 1px solid var(--border); border-radius: 999px; padding: 4px 11px; }
 .dd-chip b { color: var(--text); font-weight: 700; margin-left: 2px; }
 
+/* 본부 일정: 근태/업무 2분할 */
+.cal-split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 760px) { .cal-split { grid-template-columns: 1fr; } }
+.dash-subpanel { display: flex; flex-direction: column; gap: 8px; }
+.dash-subpanel-h { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 700; color: var(--text); }
+.dash-subpanel .dash-panel { min-height: 88px; }  /* 이번 주 범위라 스크롤 없이 전부 표시 */
 /* 본부 일정 패널: 이번 주 아젠다(날짜별) */
-#dash-cal { max-height: 296px; overflow-y: auto; }
 .dc-day { font-size: 12px; font-weight: 800; color: var(--brand); margin: 13px 0 6px; }
-#dash-cal > .dc-day:first-child { margin-top: 0; }
+.dash-panel > .dc-day:first-child { margin-top: 0; }
 .dc-items { display: flex; flex-direction: column; gap: 1px; }
 .dc-event { display: flex; align-items: center; gap: 9px; padding: 5px 4px; }
 .dc-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
@@ -1102,6 +1120,14 @@ html, body {
 .chat-head-text { display: flex; flex-direction: column; gap: 1px; }
 .chat-head-text h2 { margin: 0; font-size: 15px; font-weight: 700; color: var(--text); }
 .chat-head-sub { font-size: 12px; color: var(--muted); }
+/* 활동 중 표시(맥동 초록불) */
+.chat-online { display: inline-flex; align-items: center; gap: 5px; vertical-align: middle; margin-left: 7px; font-size: 11px; font-weight: 600; color: var(--ok); }
+.chat-online-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok-dot); animation: onlinePulse 2s infinite; }
+@keyframes onlinePulse {
+  0% { box-shadow: 0 0 0 0 rgba(44,138,98,0.45); }
+  70% { box-shadow: 0 0 0 6px rgba(44,138,98,0); }
+  100% { box-shadow: 0 0 0 0 rgba(44,138,98,0); }
+}
 
 /* 메시지 영역 */
 .chat-messages {
@@ -1227,7 +1253,7 @@ html, body {
 
 /* 입력 행 = 둥근 컨테이너(입력 + 네모 전송 버튼) */
 .chat-input-row {
-  display: flex; gap: 8px; align-items: center;
+  display: flex; gap: 8px; align-items: flex-end;
   background: var(--bg-elev);
   border: 1px solid #ebeef1;
   border-radius: 11px;
@@ -1245,6 +1271,12 @@ html, body {
   padding: 8px 0;
   border-radius: 0;
   outline: none;
+  /* textarea: 줄바꿈 가능 · 직접 리사이즈 끔 · 자동 높이(JS) · 최대 120px 스크롤 */
+  resize: none;
+  line-height: 1.5;
+  max-height: 120px;
+  overflow-y: auto;
+  display: block;
 }
 .chat-input::placeholder { color: var(--label); }
 .chat-input:disabled { opacity: 0.6; }

@@ -138,18 +138,9 @@
 
       <!-- ════ 뷰: DASHBOARD (예외 중심 개요) ════ -->
       <div class="view" id="view-dashboard" data-view="dashboard">
-        <!-- 종합 상태 한 줄 -->
-        <div class="insight-summary" id="dash-insight-summary">
-          <span class="insight-summary-dot" aria-hidden="true"></span>
-          <span class="insight-summary-text" id="dash-insight-text">상태 확인 중…</span>
-          <span class="insight-summary-counts">
-            <span class="insight-count crit">위험 <b id="dash-cnt-crit">—</b></span>
-            <span class="insight-count warn">주의 <b id="dash-cnt-warn">—</b></span>
-            <span class="insight-count">정보 <b id="dash-cnt-info">—</b></span>
-          </span>
-        </div>
+        <!-- 주목 필요(critical/warning 만) — 없으면 JS가 숨김. 평상시(정상)엔 배너 없이 깔끔 -->
+        <!-- 종합 상태 배너 제거: 알람 상태는 AWS 핵심 지표에서 확인 -->
 
-        <!-- 주목 필요(critical/warning 만) — 없으면 JS가 숨김 -->
         <div id="dash-attention-wrap" hidden>
           <div class="section-label"><span class="sec-icon" aria-hidden="true">⚠</span> 주목 필요</div>
           <ul class="insight-list" id="dash-attention-list"></ul>
@@ -225,17 +216,27 @@
           </div>
         </section>
 
-        <!-- ════ ● Dooray 업무 + ● 본부 일정 (한 줄에 나란히, 각 풍부한 패널) ════ -->
-        <div class="domain-row">
-          <section class="metrics-section">
-            <div class="metrics-head metrics-head--domain"><span class="dh-dot dh-dooray"></span>Dooray 업무 <span class="dh-sub">파트업무진행 · 이번 주</span><a class="domain-go" href="#/tasks">업무 현황 →</a></div>
-            <div class="dash-panel" id="dash-dooray"><span class="mini-muted">로딩 중…</span></div>
-          </section>
-          <section class="metrics-section">
-            <div class="metrics-head metrics-head--domain"><span class="dh-dot dh-cal"></span>본부 일정 <span class="dh-sub">Google Calendar · 이번 주</span><a class="domain-go" href="#/calendar">달력 →</a></div>
-            <div class="dash-panel" id="dash-cal"><span class="mini-muted">로딩 중…</span></div>
-          </section>
-        </div>
+        <!-- ════ ● Dooray 업무 ════ -->
+        <section class="metrics-section domain-section">
+          <div class="metrics-head metrics-head--domain"><span class="dh-dot dh-dooray"></span>Dooray 업무 <span class="dh-sub" id="dash-dooray-week">파트업무진행 · 이번 주</span><a class="domain-go" href="#/tasks">업무 현황 →</a></div>
+          <div class="dash-panel" id="dash-dooray"><span class="mini-muted">로딩 중…</span></div>
+        </section>
+
+        <!-- ════ ● 본부 일정 (근태 / 업무 일정 분리) ════ -->
+        <section class="metrics-section domain-section">
+          <div class="metrics-head metrics-head--domain"><span class="dh-dot dh-cal"></span>본부 일정 <span class="dh-sub">Google Calendar · 이번 주</span><a class="domain-go" href="#/calendar">달력 →</a></div>
+          <div class="cal-split">
+            <div class="dash-subpanel">
+              <div class="dash-subpanel-h"><span class="dh-dot" style="background:#c5473e"></span>근태 <span class="dh-sub">휴가 · 반차</span></div>
+              <div class="dash-panel" id="dash-cal-leave"><span class="mini-muted">로딩 중…</span></div>
+            </div>
+            <div class="dash-subpanel">
+              <div class="dash-subpanel-h"><span class="dh-dot" style="background:#3c5a8c"></span>업무 일정 <span class="dh-sub">회의 · 과제 · 외근</span></div>
+              <div class="dash-panel" id="dash-cal-work"><span class="mini-muted">로딩 중…</span></div>
+            </div>
+          </div>
+          <div class="dc-demo" id="dash-cal-note" hidden></div>
+        </section>
       </div>
 
       <!-- ════ 뷰: ALARMS ════ -->
@@ -443,10 +444,7 @@
               <div class="report-head">
                 <div class="report-head-l">
                   <div class="report-head-title">프로젝트별 업무</div>
-                  <div class="report-head-hint">도전·개선·생존 분류 · 클릭하면 상세·히스토리</div>
-                </div>
-                <div class="report-head-tools">
-                  <button type="button" class="btn-soft js-layout-edit" id="tasks-edit" hidden>구성 편집</button>
+                  <div class="report-head-hint">프로젝트별 진행 현황 · 클릭하면 상세·히스토리</div>
                 </div>
               </div>
               <div id="tasks-report"></div>
@@ -651,8 +649,8 @@
         <div class="chat-head-title">
           <span class="chat-head-avatar" aria-hidden="true">SQ</span>
           <div class="chat-head-text">
-            <h2>김스큐</h2>
-            <span class="chat-head-sub">운영 데이터 실시간 연결됨</span>
+            <h2>김스큐 <span class="chat-online"><span class="chat-online-dot" aria-hidden="true"></span>온라인</span></h2>
+            <span class="chat-head-sub">AWS 운영·Dooray 업무·본부 일정, 무엇이든 물어보세요</span>
           </div>
         </div>
       </div>
@@ -668,8 +666,12 @@
         <!-- 예시 질문 칩(클릭 시 자동 전송) -->
         <div class="chat-chips" id="chat-chips">
           <button type="button" class="chat-chip" data-q="지금 알람 상태 어때?">지금 알람 상태</button>
-          <button type="button" class="chat-chip" data-q="이번주 업무 진행 현황 요약해줘">이번주 업무 현황</button>
           <button type="button" class="chat-chip" data-q="DB 상태 어때?">DB 상태 어때?</button>
+          <button type="button" class="chat-chip" data-q="가동률·응답시간 괜찮아?">가동률 괜찮아?</button>
+          <button type="button" class="chat-chip" data-q="이번주 업무 진행 현황 요약해줘">이번주 업무 현황</button>
+          <button type="button" class="chat-chip" data-q="진행 중인데 막혀 보이는 업무 있어?">막힌 업무 있어?</button>
+          <button type="button" class="chat-chip" data-q="오늘 휴가나 반차인 사람 있어?">오늘 휴가 누구야?</button>
+          <button type="button" class="chat-chip" data-q="이번주 회의·일정 알려줘">이번주 회의 일정</button>
         </div>
       </div>
 
@@ -678,13 +680,13 @@
           <span class="model-dot"></span>Google · Gemini 2.5 Flash
         </div>
         <form class="chat-input-row" id="chat-form" autocomplete="off">
-          <input
-            type="text"
+          <textarea
             class="chat-input"
             id="chat-input"
+            rows="1"
             maxlength="1000"
             placeholder="질문을 입력하세요…"
-            aria-label="질문 입력">
+            aria-label="질문 입력"></textarea>
           <button type="submit" class="chat-send" id="chat-send" aria-label="전송">
             <svg class="chat-send-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
               <path fill="currentColor" d="M12 20V7.8l-5.6 5.6L5 12l8-8 8 8-1.4 1.4L14 7.8V20z"/>

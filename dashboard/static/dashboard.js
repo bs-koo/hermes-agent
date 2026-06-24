@@ -813,6 +813,8 @@ function loadDashboardDooray() {
   var host = document.getElementById('dash-dooray'); if (!host) return;
   fetchJson('/api/dooray').then(function (d) {
     var tasks = (d && d.tasks) || [];
+    var wkName = (d && d.current_week && d.current_week.name) || '이번 주';
+    setText('dash-dooray-week', '파트업무진행 · ' + wkName);
     if (d.empty || !tasks.length) {
       host.innerHTML = ''; var m = document.createElement('span'); m.className = 'mini-muted';
       m.textContent = (d && d.configured === false) ? '토큰 미설정' : '데이터 없음'; host.appendChild(m); return;
@@ -826,9 +828,9 @@ function loadDashboardDooray() {
     var tiles = document.createElement('div'); tiles.className = 'dd-tiles';
     [['진행', cnt.working, 'working'], ['완료', cnt.closed, 'closed'], ['할 일', cnt.registered, 'registered']].forEach(function (x) {
       var t = document.createElement('div'); t.className = 'dd-tile dd-' + x[2];
-      var v = document.createElement('div'); v.className = 'dd-tile-v'; v.textContent = x[1];
       var l = document.createElement('div'); l.className = 'dd-tile-l'; l.textContent = x[0];
-      t.appendChild(v); t.appendChild(l); tiles.appendChild(t);
+      var v = document.createElement('div'); v.className = 'dd-tile-v'; v.textContent = x[1];
+      t.appendChild(l); t.appendChild(v); tiles.appendChild(t);   /* 라벨 위 · 숫자 아래(KPI 타일과 통일) */
     });
     host.appendChild(tiles);
     var projs = Object.keys(byTag).filter(function (k) { return k !== '기타'; }).sort(function (a, b) { return byTag[b] - byTag[a]; });
@@ -847,36 +849,53 @@ function loadDashboardDooray() {
   }).catch(function () { host.innerHTML = '<span class="mini-muted">불러오기 실패</span>'; });
 }
 
-/* 대시보드 본부 일정 패널 — 이번 주(오늘~+7일) 날짜별 아젠다(여러 개도 모두 표시) */
+/* 근태(휴가·반차) 여부 — 본부 일정을 근태/업무로 나누는 기준 */
+function _isLeave(e) {
+  var c = _calCat(e);
+  return c === CAL_CATS.leave || c === CAL_CATS.amhalf || c === CAL_CATS.pmhalf;
+}
+
+/* 이번 주 아젠다(날짜별 그룹)를 host 에 렌더 */
+function _renderAgenda(host, evs, emptyMsg) {
+  host.innerHTML = '';
+  if (!evs.length) { var m = document.createElement('span'); m.className = 'mini-muted'; m.textContent = emptyMsg; host.appendChild(m); return; }
+  var curKey = null, group = null;
+  evs.forEach(function (e) {
+    var key = _calDayKeyOf(_calKstDate(e.start));
+    if (key !== curKey) {
+      curKey = key;
+      var h = document.createElement('div'); h.className = 'dc-day'; h.textContent = _calDayLabel(e.start); host.appendChild(h);
+      group = document.createElement('div'); group.className = 'dc-items'; host.appendChild(group);
+    }
+    var cat = _calCat(e);
+    var row = document.createElement('div'); row.className = 'dc-event';
+    var dot = document.createElement('span'); dot.className = 'dc-dot'; dot.style.background = cat.line; row.appendChild(dot);
+    var tm = document.createElement('span'); tm.className = 'dc-time'; tm.textContent = e.all_day ? '' : _calHm(e.start); row.appendChild(tm);
+    var ti = document.createElement('span'); ti.className = 'dc-title'; ti.textContent = e.title || ''; row.appendChild(ti);
+    group.appendChild(row);
+  });
+}
+
+/* 대시보드 본부 일정 — 이번 주(오늘~+7일)를 근태/업무 두 섹션으로 분리 */
 function loadDashboardCal() {
-  var host = document.getElementById('dash-cal'); if (!host) return;
+  var leaveHost = document.getElementById('dash-cal-leave'), workHost = document.getElementById('dash-cal-work');
+  if (!leaveHost || !workHost) return;
   fetchJson('/api/calendar').then(function (d) {
     var evs = (d && d.events) || [];
     var demo = !evs.length;
     if (demo) evs = _demoCalEvents();
     var nk = new Date(Date.now() + 9 * 3600 * 1000);
-    var t0 = Date.UTC(nk.getUTCFullYear(), nk.getUTCMonth(), nk.getUTCDate()) / 1000 - 9 * 3600;  // 오늘 0시(KST) epoch
-    var wk = evs.filter(function (e) { return e.start >= t0 && e.start < t0 + 7 * 86400; })
+    var t0 = Date.UTC(nk.getUTCFullYear(), nk.getUTCMonth(), nk.getUTCDate()) / 1000 - 9 * 3600;  // 오늘 0시(KST)
+    var dow = nk.getUTCDay();                         // 0=일 … 6=토(KST)
+    var daysToMon = (1 - dow + 7) % 7; if (daysToMon === 0) daysToMon = 7;  // 오늘 ~ 이번 주 일요일(다음 월요일 직전)
+    var weekEnd = t0 + daysToMon * 86400;
+    var wk = evs.filter(function (e) { return e.start >= t0 && e.start < weekEnd; })
                 .sort(function (a, b) { return a.start - b.start; });
-    host.innerHTML = '';
-    if (!wk.length) { host.innerHTML = '<span class="mini-muted">이번 주 일정이 없습니다.</span>'; return; }
-    var curKey = null, group = null;
-    wk.forEach(function (e) {
-      var key = _calDayKeyOf(_calKstDate(e.start));
-      if (key !== curKey) {
-        curKey = key;
-        var h = document.createElement('div'); h.className = 'dc-day'; h.textContent = _calDayLabel(e.start); host.appendChild(h);
-        group = document.createElement('div'); group.className = 'dc-items'; host.appendChild(group);
-      }
-      var cat = _calCat(e);
-      var row = document.createElement('div'); row.className = 'dc-event';
-      var dot = document.createElement('span'); dot.className = 'dc-dot'; dot.style.background = cat.line; row.appendChild(dot);
-      var tm = document.createElement('span'); tm.className = 'dc-time'; tm.textContent = e.all_day ? '종일' : _calHm(e.start); row.appendChild(tm);
-      var ti = document.createElement('span'); ti.className = 'dc-title'; ti.textContent = e.title || ''; row.appendChild(ti);
-      group.appendChild(row);
-    });
-    if (demo) { var n = document.createElement('div'); n.className = 'dc-demo'; n.textContent = '예시 데이터 (iCal 연동 전 미리보기)'; host.appendChild(n); }
-  }).catch(function () { host.innerHTML = '<span class="mini-muted">불러오기 실패</span>'; });
+    _renderAgenda(leaveHost, wk.filter(_isLeave), '이번 주 근태가 없습니다.');
+    _renderAgenda(workHost, wk.filter(function (e) { return !_isLeave(e); }), '이번 주 업무 일정이 없습니다.');
+    var note = document.getElementById('dash-cal-note');
+    if (note) { note.hidden = !demo; note.textContent = demo ? '예시 데이터 (iCal 연동 전 미리보기)' : ''; }
+  }).catch(function () { leaveHost.innerHTML = '<span class="mini-muted">불러오기 실패</span>'; workHost.innerHTML = ''; });
 }
 
 /* 일정 시각 라벨: 오늘/내일/MM/DD + HH:MM(종일은 시간 생략) */
@@ -1241,19 +1260,8 @@ function loadDb() {
       head.appendChild(titleWrap);
       cardEl.appendChild(head);
 
-      /* CPU 평균/최대 막대 */
-      var cpu = it.cpu_avg;
-      var cpuCls = (cpu != null && cpu >= 80) ? 'bad' : (cpu != null && cpu >= 60 ? 'warn' : '');
-      var cpuRow = document.createElement('div'); cpuRow.className = 'host-metric';
-      var cpuTop = document.createElement('div'); cpuTop.className = 'host-metric-top';
-      var cpuLab = document.createElement('span'); cpuLab.className = 'host-metric-label'; cpuLab.textContent = 'CPU 사용률';
-      var cpuVal = document.createElement('span'); cpuVal.className = 'host-metric-val' + (cpuCls ? ' ' + cpuCls : '');
-      cpuVal.textContent = cpuUsageText(cpu, it.cpu_max, it.cpu_max_series);
-      cpuTop.appendChild(cpuLab); cpuTop.appendChild(cpuVal); cpuRow.appendChild(cpuTop);
-      var bar = document.createElement('div'); bar.className = 'host-bar';
-      var fill = document.createElement('div'); fill.className = 'host-bar-fill' + (cpuCls ? ' ' + cpuCls : '');
-      fill.style.width = Math.max(0, Math.min(100, cpu == null ? 0 : cpu)) + '%';
-      bar.appendChild(fill); cpuRow.appendChild(bar); cardEl.appendChild(cpuRow);
+      /* CPU 평균/최고(2열 stat + 막대) */
+      cardEl.appendChild(cpuStatBlock(it.cpu_avg, it.cpu_max));
 
       /* 요약 행: 연결 · 여유공간 · 메모리 */
       function metaRow(label, valText, cls) {
@@ -1356,6 +1364,29 @@ function cpuUsageText(avg, max, series) {
   return '평균 ' + a + ' · 최고 ' + fmtFixed(max, 1) + '%' + (when ? ' (' + when + ')' : '');
 }
 
+/* CPU 사용률 블록(카드용) — 평균/최고를 2열 stat + 막대로(시각 제거, 가독성↑) */
+function _cpuCls(v) { return (v != null && v >= 80) ? 'bad' : (v != null && v >= 60 ? 'warn' : ''); }
+function cpuStatBlock(avg, max) {
+  var wrap = document.createElement('div'); wrap.className = 'host-cpu';
+  var h = document.createElement('div'); h.className = 'host-cpu-head'; h.textContent = 'CPU 사용률'; wrap.appendChild(h);
+  var stats = document.createElement('div'); stats.className = 'host-cpu-stats';
+  function stat(label, val, cls) {
+    var s = document.createElement('div'); s.className = 'host-stat';
+    var l = document.createElement('span'); l.className = 'host-stat-l'; l.textContent = label;
+    var v = document.createElement('span'); v.className = 'host-stat-v' + (cls ? ' ' + cls : '');
+    v.textContent = (val == null ? '—' : fmtFixed(val, 1) + '%');
+    s.appendChild(l); s.appendChild(v); return s;
+  }
+  stats.appendChild(stat('평균', avg, _cpuCls(avg)));
+  if (max != null) stats.appendChild(stat('최고', max, _cpuCls(max)));
+  wrap.appendChild(stats);
+  var bar = document.createElement('div'); bar.className = 'host-bar';
+  var fill = document.createElement('div'); fill.className = 'host-bar-fill' + (_cpuCls(avg) ? ' ' + _cpuCls(avg) : '');
+  fill.style.width = Math.max(0, Math.min(100, avg == null ? 0 : avg)) + '%';
+  bar.appendChild(fill); wrap.appendChild(bar);
+  return wrap;
+}
+
 function loadHost() {
   var card = document.getElementById('panel-host');
   if (!card) return;
@@ -1412,24 +1443,8 @@ function loadHost() {
       subEl.textContent = subParts.join(' · ');     /* 외부유래 → textContent */
       cardEl.appendChild(subEl);
 
-      /* CPU 평균/최대 + 미니 막대 */
-      var cpuAvg = it.cpu_avg;
-      var cpuCls = (cpuAvg != null && cpuAvg >= 80) ? 'bad' : (cpuAvg != null && cpuAvg >= 60 ? 'warn' : '');
-      var cpuRow = document.createElement('div');
-      cpuRow.className = 'host-metric';
-      var cpuTop = document.createElement('div');
-      cpuTop.className = 'host-metric-top';
-      var cpuLab = document.createElement('span'); cpuLab.className = 'host-metric-label';
-      cpuLab.textContent = 'CPU 사용률';
-      var cpuVal = document.createElement('span'); cpuVal.className = 'host-metric-val' + (cpuCls ? ' ' + cpuCls : '');
-      cpuVal.textContent = cpuUsageText(cpuAvg, it.cpu_max, it.cpu_max_series);
-      cpuTop.appendChild(cpuLab); cpuTop.appendChild(cpuVal);
-      cpuRow.appendChild(cpuTop);
-      var bar = document.createElement('div'); bar.className = 'host-bar';
-      var fill = document.createElement('div'); fill.className = 'host-bar-fill' + (cpuCls ? ' ' + cpuCls : '');
-      fill.style.width = Math.max(0, Math.min(100, cpuAvg == null ? 0 : cpuAvg)) + '%';
-      bar.appendChild(fill); cpuRow.appendChild(bar);
-      cardEl.appendChild(cpuRow);
+      /* CPU 평균/최고(2열 stat + 막대) */
+      cardEl.appendChild(cpuStatBlock(it.cpu_avg, it.cpu_max));
 
       /* 네트워크/EBS/크레딧 미니 행 */
       function metaRow(label, valText, cls) {
@@ -1686,6 +1701,7 @@ function sendChat(question) {
 
   appendChatMsg('user', q);
   input.value = '';
+  input.style.height = 'auto';                     /* textarea 높이 리셋 */
 
   /* 전송 중: 버튼 스피너 + typing indicator */
   setChatBusy(true);
@@ -1720,8 +1736,19 @@ function bindChat() {
   var form = document.getElementById('chat-form');
   if (form) {
     form.addEventListener('submit', function (ev) {
-      ev.preventDefault();                         /* Enter/전송 모두 폼 submit 으로 통합 */
+      ev.preventDefault();                         /* 전송 버튼 → submit */
       sendChat();
+    });
+  }
+  /* textarea: Enter=전송 / Shift+Enter=줄바꿈 / 한글 조합 중엔 전송 안 함 + 자동 높이 */
+  var cinput = document.getElementById('chat-input');
+  if (cinput) {
+    cinput.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); sendChat(); }
+    });
+    cinput.addEventListener('input', function () {
+      cinput.style.height = 'auto';
+      cinput.style.height = Math.min(cinput.scrollHeight, 120) + 'px';
     });
   }
   /* 예시 질문 칩: 클릭 시 해당 질문 자동 전송(칩 텍스트는 고정이라 안전) */
@@ -1778,7 +1805,7 @@ function _doorayNote(noteId, d, mode) {
   if (mode === 'weekly') {
     desc.textContent = '이번 주 업무를 파트장 메일(전주 실적) 형식으로 만들어요. [주간보고 생성]을 누르면 도전·개선·생존 분류대로 정리되고, [복사]로 그대로 붙여넣을 수 있어요. 분류가 안 맞으면 [구성 편집]에서 바꾸세요.';
   } else {
-    desc.textContent = '매일 아침 두레이 ‘' + pname + '’ 프로젝트에서 이번 주 업무를 자동으로 가져와 프로젝트(도전·개선·생존)별 진행 현황을 보여줘요. 업무를 클릭하면 본문·히스토리와 AI 요약을 팝업에서 확인할 수 있고, 분류·순서는 [구성 편집]에서 바꿀 수 있어요.';
+    desc.textContent = '매일 아침 두레이 ‘' + pname + '’ 프로젝트에서 이번 주 업무를 자동으로 가져와 프로젝트별로 보여줘요. 업무를 클릭하면 본문·히스토리와 AI 요약을 팝업에서 확인할 수 있어요.';
   }
   var meta = document.createElement('span'); meta.className = 'card-sub-meta';
   meta.textContent = (_weeklyMeta.week || '이번 주') + ' · 업무 ' + _weeklyTasks.length + '건'
@@ -1790,15 +1817,29 @@ function _doorayNote(noteId, d, mode) {
 function loadTasks() {
   var card = document.getElementById('panel-tasks'); if (!card) return;
   return _doorayFetch(card, function (d) {
-    var e = document.getElementById('tasks-edit'); if (e) e.hidden = !d;
     if (!d) return;
     setText('tasks-week', _weeklyMeta.week);
     _doorayNote('tasks-note', d, 'tasks');
     var cnt = { registered: 0, working: 0, closed: 0 };
     _weeklyTasks.forEach(function (t) { var c = t.workflowClass || 'registered'; cnt[c] = (cnt[c] || 0) + 1; });
     _renderWeekSummary(_weeklyTasks, cnt, 'tasks-summary');
-    _renderReportBuckets(_weeklyTasks, _weeklyLayout, 'tasks-report');
+    _renderTasksByProject(_weeklyTasks, 'tasks-report');
   });
+}
+
+/* 업무 현황: 도전/개선/생존 없이 '프로젝트(태그)별'로만 그룹핑(많은 순) */
+function _renderTasksByProject(tasks, wrapId) {
+  var wrap = document.getElementById(wrapId); if (!wrap) return; wrap.innerHTML = '';
+  if (!tasks.length) {
+    var nz = document.createElement('div'); nz.className = 'insight-none-sub';
+    nz.textContent = '이번 주 등록된 업무가 없습니다.'; wrap.appendChild(nz); return;
+  }
+  var byTag = _projectMap(tasks);
+  var tags = Object.keys(byTag).sort(function (a, b) {
+    if ((a === '기타') !== (b === '기타')) return a === '기타' ? 1 : -1;   /* 기타는 맨 뒤 */
+    return (byTag[b].length - byTag[a].length) || a.localeCompare(b);
+  });
+  tags.forEach(function (tag) { wrap.appendChild(_renderProjectGroup({ tag: tag, tasks: byTag[tag] })); });
 }
 
 /* 주간 보고: 생성 버튼 → 전주 실적 양식 미리보기 → 복사 */
@@ -1873,9 +1914,8 @@ function _renderMonthlyReport() {
 
 /* 레이아웃 저장 후 활성 Dooray 뷰 재렌더 */
 function _refreshDoorayViews() {
-  if (_weeklyTasks && _weeklyTasks.length && document.getElementById('tasks-report')) {
-    _renderReportBuckets(_weeklyTasks, _weeklyLayout, 'tasks-report');
-  }
+  /* 업무 현황은 프로젝트별이라 레이아웃과 무관 → 재렌더 불필요.
+     도전/개선/생존 레이아웃은 주간 보고·월간 리포트에만 영향. */
   var pw = document.getElementById('weekly-preview-wrap');
   if (pw && !pw.hidden) _generateWeekly();
   if (_monthlyTasks && _monthlyTasks.length) _renderMonthlyReport();
@@ -1950,15 +1990,14 @@ var CAL_CATS = {
   work:   { key: 'work',   label: '업무',      line: '#3c5a8c', bg: '#ecf0f6' },
   leave:  { key: 'leave',  label: '연차·휴가', line: '#c5473e', bg: '#f7e9e7' },
   amhalf: { key: 'amhalf', label: '오전반차',  line: '#be8636', bg: '#fbf2e3' },
-  pmhalf: { key: 'pmhalf', label: '오후반차',  line: '#6e6597', bg: '#efe9f3' },
-  out:    { key: 'out',    label: '외근·출장', line: '#3a6b73', bg: '#e5eef0' }
+  pmhalf: { key: 'pmhalf', label: '오후반차',  line: '#6e6597', bg: '#efe9f3' }
 };
 function _calCat(e) {
   var t = e.title || '';
   if (/오전\s*반차/.test(t)) return CAL_CATS.amhalf;
   if (/오후\s*반차/.test(t)) return CAL_CATS.pmhalf;
   if (/연차|휴가|반차|월차|경조/.test(t)) return CAL_CATS.leave;
-  if (/외근|출장|파견/.test(t)) return CAL_CATS.out;
+  if (/외근|출장|파견/.test(t)) return CAL_CATS.work;   /* 외근·출장도 업무로 통일 */
   if (e.kind === 'leave') return CAL_CATS.leave;
   return CAL_CATS.work;
 }
@@ -1992,7 +2031,7 @@ function _demoCalEvents() {
 /* 카테고리 범례 렌더 */
 function _renderCalLegend() {
   var host = document.getElementById('cal-legend'); if (!host) return; host.innerHTML = '';
-  ['work', 'leave', 'amhalf', 'pmhalf', 'out'].forEach(function (k) {
+  ['work', 'leave', 'amhalf', 'pmhalf'].forEach(function (k) {
     var c = CAL_CATS[k];
     var item = document.createElement('span'); item.className = 'cal-legend-item';
     var dot = document.createElement('span'); dot.className = 'cal-legend-dot'; dot.style.background = c.line;

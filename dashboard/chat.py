@@ -102,28 +102,71 @@ def _traffic_ctx():
     return "\n".join(lines)
 
 
+def _fmt1(v, suffix=""):
+    """숫자 → 소수1자리+단위, None/비숫자는 '-'."""
+    if v is None:
+        return "-"
+    try:
+        return f"{float(v):.1f}{suffix}"
+    except (TypeError, ValueError):
+        return "-"
+
+
 def _db_ctx():
     snap = storage.get_db()
     if snap is None:
         return "DB(RDS): 데이터 없음"
     p = snap["payload"]
+    insts = p.get("instances") or []
+    if not insts:
+        return "DB(RDS): 데이터 없음"
+    primary = p.get("primary_db_id")
+    lines = [f"DB(RDS {len(insts)}대, 수집 {_kst(snap.get('collected_at'))}):"]
+    for it in insts:
+        free = it.get("free_storage")
+        free_s = f"{free / 1e9:.1f}GB" if isinstance(free, (int, float)) else "-"
+        star = " (주 DB)" if it.get("db_id") == primary else ""
+        lines.append(
+            f"  - {it.get('db_id') or '?'}{star}: CPU 평균 {_fmt1(it.get('cpu_avg'), '%')}/"
+            f"최대 {_fmt1(it.get('cpu_max'), '%')}, 연결 평균 {_fmt1(it.get('conn_avg'))}/"
+            f"최대 {_fmt1(it.get('conn_max'))}, 여유공간 {free_s}")
+    return "\n".join(lines)
 
-    def _fmt(v, suffix=""):
-        if v is None:
-            return "-"
-        try:
-            return f"{float(v):.1f}{suffix}"
-        except (TypeError, ValueError):
-            return "-"
 
-    free = p.get("free_storage")
-    free_s = f"{free / 1e9:.1f}GB" if isinstance(free, (int, float)) else "-"
-    lines = [
-        f"DB(RDS, 수집 {_kst(snap.get('collected_at'))}):",
-        f"  - CPU 평균/최대: {_fmt(p.get('cpu_avg'), '%')}/{_fmt(p.get('cpu_max'), '%')}",
-        f"  - 연결 평균/최대: {_fmt(p.get('conn_avg'))}/{_fmt(p.get('conn_max'))}",
-        f"  - 여유공간: {free_s}",
-    ]
+def _host_ctx():
+    """EC2 인스턴스(계정 전체) — 이름·IP·타입·CPU 평균/최대."""
+    snap = storage.get_host()
+    if snap is None:
+        return "EC2 인스턴스: 데이터 없음"
+    p = snap["payload"]
+    insts = p.get("instances") or []
+    if not insts:
+        return "EC2 인스턴스: 데이터 없음"
+    lines = [f"EC2 인스턴스({len(insts)}대, 수집 {_kst(snap.get('collected_at'))}):"]
+    for it in insts:
+        nm = it.get("instance_name") or it.get("instance_id") or "?"
+        meta = " · ".join([x for x in [it.get("private_ip"), it.get("instance_type")] if x])
+        lines.append(
+            f"  - {nm}" + (f" ({meta})" if meta else "")
+            + f": CPU 평균 {_fmt1(it.get('cpu_avg'), '%')}/최대 {_fmt1(it.get('cpu_max'), '%')}")
+    return "\n".join(lines)
+
+
+def _cdn_ctx():
+    """CloudFront 배포 — 요청수·5xx 에러율."""
+    snap = storage.get_cdn()
+    if snap is None:
+        return "CDN(CloudFront): 데이터 없음"
+    p = snap["payload"]
+    dists = p.get("distributions") or []
+    if not dists:
+        return "CDN(CloudFront): 데이터 없음"
+    lines = [f"CDN(CloudFront {len(dists)}개 배포, 수집 {_kst(snap.get('collected_at'))}):"]
+    for d in dists:
+        req = d.get("requests")
+        lines.append(
+            f"  - {d.get('dist_id')}: 요청수 {req if req is not None else '-'}, "
+            f"5xx 에러율 {_fmt1(d.get('err_5xx'), '%')}")
     return "\n".join(lines)
 
 
@@ -181,7 +224,10 @@ def _calendar_ctx():
     """본부 일정(Google Calendar) — 다가오는 일정 목록(근태·업무 카테고리 포함)."""
     snap = storage.get_gcal()
     if snap is None:
-        return "본부 일정(Google Calendar): 데이터 없음"
+        if not (config.GCAL_ICS_URL or config.GCAL_ATTEND_ICS_URL):
+            return ("본부 일정(Google Calendar): 아직 연동되지 않음(iCal 주소 미설정). "
+                    "일정·근태(휴가/반차)를 확인할 수 없음 — 관리자가 연동해야 함.")
+        return "본부 일정(Google Calendar): 데이터 없음(아직 수집 전)"
     p = snap.get("payload") or {}
     evs = p.get("events") or []
     if not evs:
@@ -204,8 +250,10 @@ def _build_context():
         f"[현재 시각(KST): {now_kst}]",
         _alarms_ctx(),
         _uptime_ctx(),
-        _traffic_ctx(),
+        _host_ctx(),
+        _cdn_ctx(),
         _db_ctx(),
+        _traffic_ctx(),
         _dooray_ctx(),
         _calendar_ctx(),
     ]
