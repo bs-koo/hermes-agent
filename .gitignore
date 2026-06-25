@@ -20,11 +20,19 @@ venv/
 uptime_state.json
 uptime_log.csv
 bash.exe.stackdump
+dashboard.db
+dashboard.db-wal
+dashboard.db-shm
 
 # ── Tooling / session artifacts ──
 .omc/
 .claude/settings.local.json
 .dev/
+.playwright-mcp/
+dashboard-*.png
+/*.png
+/*.jpeg
+/*.jpg
 
 # ── OS ──
 Thumbs.db

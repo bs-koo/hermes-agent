@@ -66,6 +66,69 @@ def rds_brief():
         return None
 
 
+# ── 대시보드 API 재사용(AI 분석·두레이 주간보고) ──────────────────────
+# 대시보드(상시 가동)가 만든 인사이트 AI 코멘트·두레이 데이터를 HTTP 로 가져온다.
+# 봇 cron 이 다른 호스트/컨테이너면 DASH_URL 로 주소를 조정(기본 localhost:8090).
+def _dash_get(path):
+    url = os.environ.get("DASH_URL", "http://localhost:8090").rstrip("/") + path
+    try:
+        with urllib.request.urlopen(url, timeout=20) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except Exception:  # noqa: BLE001 — 대시보드 미가동 시 해당 섹션만 생략
+        return None
+
+
+def ai_section():
+    """인사이트 룰 + Gemini 종합 분석(채팅과 동일 톤). 없으면 None."""
+    d = _dash_get("/api/insights")
+    if not d:
+        return None
+    c = (d.get("ai_comment") or "").strip()
+    if not c:
+        return None
+    return "🤖 *AI 분석*\n" + c
+
+
+def dooray_section():
+    """두레이 '파트업무진행' 주간 업무 — 파트장 메일 형식(담당자 제외, 레이아웃 순서)."""
+    d = _dash_get("/api/dooray")
+    if not d or d.get("empty"):
+        return None
+    lay = (_dash_get("/api/dooray/layout") or {}).get("layout") or {"buckets": []}
+    tasks = d.get("tasks") or []
+    by_tag = {}
+    for t in tasks:
+        for tag in (t.get("tags") or ["기타"]):
+            by_tag.setdefault(tag, []).append(t)
+    assigned, buckets = set(), []
+    for b in lay.get("buckets", []):
+        projs = [(tag, by_tag[tag]) for tag in b.get("tags", []) if by_tag.get(tag)]
+        for tag, _ in projs:
+            assigned.add(tag)
+        buckets.append((b.get("label", ""), b.get("goal", ""), projs))
+    etc = [(tag, by_tag[tag]) for tag in by_tag if tag not in assigned]
+    out = ["📋 *데이터플랫폼파트 주간 업무*", "", "🗓️ 전주 실적"]
+
+    def emit(label, goal, projs):
+        out.append(("[%s] %s" % (label, goal)) if goal else "[%s]" % label)
+        for tag, ts in projs:
+            out.append(tag)
+            seen = set()
+            for t in ts:
+                s = (t.get("subject") or "").strip()
+                if s and s not in seen:
+                    seen.add(s)
+                    out.append("o " + s)
+            out.append("")
+
+    for label, goal, projs in buckets:
+        if projs:
+            emit(label, goal, projs)
+    # 기타(미분류)는 전주 실적 보고에서 제외(대시보드 복사와 동일 규칙)
+    out += ["🗓️ 금주 계획", "(다음 주 계획을 작성하세요)", "", "📋 기타사항", "특이사항 없음"]
+    return "\n".join(out).rstrip()
+
+
 def build():
     now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
     date_str = now.strftime("%Y-%m-%d") + f" ({DOW[now.weekday()]})"
@@ -106,6 +169,21 @@ def build():
             L.append(f"   • 연결  평균 {db['conn']:.0f}개")
         if db["free"] is not None:
             L.append(f"   • 여유공간  {db['free']/1e9:.1f}GB")
+
+    # AI 종합 분석(인사이트 룰 + Gemini, 채팅과 동일 전문가 톤)
+    ai = ai_section()
+    if ai:
+        L.append("")
+        L.append(ai)
+
+    # 금요일(weekday 4) 오전: AWS 보고에 두레이 주간 업무 보고를 함께 첨부
+    if now.weekday() == 4:
+        dr = dooray_section()
+        if dr:
+            L.append("")
+            L.append("────────────────────")
+            L.append("")
+            L.append(dr)
 
     return "\n".join(L).rstrip()
 

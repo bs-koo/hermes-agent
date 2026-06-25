@@ -1,0 +1,34 @@
+# dataviz-prod 운영 대시보드 이미지 (FastAPI + 백그라운드 스케줄러, 단일 컨테이너)
+# 기존 cloudwatch-mcp 이미지와 별개 — 웹 대시보드 전용.
+#
+# 빌드:
+#   docker build -f Dockerfile.dashboard -t dataviz-dashboard:latest D:/SQ/hermes_agent
+#
+# 실행은 run_dashboard.cmd 참고(마운트/env/named volume 포함, docker run -d).
+#
+# 단일 워커 강제: 멀티워커 시 lifespan 이 워커마다 실행 → 스케줄러 N 개 →
+#   Logs Insights 중복 발사(BR-1 위반)·SQLite 락. ENTRYPOINT 에 --workers 1 고정.
+
+FROM python:3.12-slim
+
+RUN pip install --no-cache-dir fastapi "uvicorn[standard]" boto3
+
+WORKDIR /app
+
+COPY dashboard /app/dashboard
+# collectors/alarms.py 가 import (BR-5: 내용 불변)
+COPY daily_digest.py /app/daily_digest.py
+# daily_digest·config 의존
+COPY _env.py /app/_env.py
+
+EXPOSE 8080
+
+# 비root 실행(uid 1000). /db 는 named volume 마운트 지점이라 이미지에서 미리
+# 생성·chown 해 둬야 볼륨 초기화 시 app 소유권이 복사돼 SQLite 쓰기가 가능하다.
+RUN useradd -r -u 1000 app \
+ && mkdir -p /db \
+ && chown -R app:app /app /db
+USER app
+
+# 멀티워커 금지 — 스케줄러가 워커마다 떠서 Logs Insights 중복 발사(BR-1 위반)·SQLite 락
+ENTRYPOINT ["uvicorn","dashboard.api:app","--host","0.0.0.0","--port","8080","--workers","1"]

@@ -121,6 +121,20 @@
 
 ---
 
+## 10-B. 로그인 메커니즘 — 역공학 완료 (2026-06-23)
+
+> 6번의 "로그인 API 스펙 미확보" 블로커 해소. 라이브 로그인 페이지(`iqsbz.sqisoft.com`) 직접 분석 결과.
+
+- **로그인 페이지**: `https://iqsbz.sqisoft.com/` (ID + Password, 서버 Apache/스프링)
+- **① 공개키**: `POST /getRsaPublicKey` → `{"publicKey": "<PEM>"}` (RSA-2048)
+- **② 암호화**: 클라가 `jsencrypt@3.3.2`(RSA **PKCS#1 v1.5**)로 `email`·`password`를 각각 암호화 → base64.
+  - ⚠️ **클라는 입력값을 그대로 암호화**한다(`email = $("#email").val()`). `@sqisoft.com` **자동 부착 없음** → 서버가 붙이거나 사용자가 전체 이메일 입력.
+- **③ 로그인**: `POST /doLogin` (application/x-www-form-urlencoded)
+  - body: `email=<RSA(email)>&password=<RSA(password)>`
+  - 성공 → `302 /main` + `JSESSIONID` 쿠키 / 실패 → `302 /common/error401`
+- **Python 복제 검증됨**: `cryptography`(load_pem_public_key + PKCS1v15)로 동일 요청 생성 시 서버 수용(더미 자격증명은 정상적으로 error401). → `iqsbz_auth_probe.py` 참조.
+- **남은 미확인**: 로그인 성공 후 **:9010 API용 JWT 발급 시점**(세션 쿠키만으로 :9010 호출되는지 / 별도 토큰 발급 엔드포인트가 있는지) — 실제 자격증명 1회로 캡처 필요.
+
 ## 10. 요약 한 줄
 
 > **봇·네트워크·API·형식 다 준비됨. JWT 자동 로그인 모듈 + 봇 전용 계정/엔드포인트(개발팀)만 확보하면, 오늘 만든 Google Chat 봇이 근태·스케줄까지 답하게 된다.**

@@ -1,0 +1,24 @@
+# dataviz-dashboard 이미지 빌드 컨텍스트 제외 목록
+# COPY 대상(dashboard/, daily_digest.py, _env.py)에 불필요한 파일이 섞이지 않게.
+__pycache__/
+*.pyc
+*.pyo
+
+# 로컬 DB·WAL(이미지에 굽지 않음 — named volume 으로 주입)
+dashboard.db
+dashboard.db-wal
+dashboard.db-shm
+
+# 시크릿·자격증명(빌드 컨텍스트에서 제외)
+.env
+*.env
+*-sa.json
+
+# 런타임 데이터·로컬 작업 디렉토리
+uptime_log.csv
+.dev/
+.git/
+.playwright-mcp/
+
+# 문서(이미지에 불필요)
+*.md
