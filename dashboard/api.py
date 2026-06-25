@@ -92,6 +92,10 @@ async def _no_cache_static(request, call_next):
 def _is_whitelisted(path):
     """인증 없이 접근 가능한 경로(로그인 화면·로그인/로그아웃 API·로그인에 필요한 자산).
     리다이렉트 목적지 /login 과 그 자산을 모두 허용해 무한 리다이렉트를 막는다."""
+    # 경로 조작('..') 차단: `/fonts/../dashboard.js` 처럼 prefix 화이트리스트를 우회해
+    # 비인증으로 다른 자산에 접근하는 path traversal 을 막는다(정상 경로엔 '..' 가 없다).
+    if ".." in path:
+        return False
     if path in ("/login", "/login.html", "/styles.css",
                 "/api/auth/login", "/api/auth/logout"):
         return True
