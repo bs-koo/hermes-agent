@@ -22,6 +22,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from dashboard import config, storage, chat, insights
+from dashboard.collectors import dooray as dooray_collector
 from dashboard.scheduler import Scheduler
 
 _scheduler = Scheduler()
@@ -361,6 +362,15 @@ def api_dooray():
     p["configured"] = True
     p.setdefault("collected_at", snap.get("collected_at"))
     return p
+
+
+@app.post("/api/dooray/refresh")
+def api_dooray_refresh():
+    """업무 현황/주간 보고 수동 새로고침 — Dooray 에서 강제 재수집(하루 1회 가드 무시).
+    동기 호출이라 수 초~수십 초 걸린다(Dooray REST 다건 + 변경분 AI 요약). 단일 워커 전제."""
+    dooray_collector.refresh(time.time())
+    snap = storage.get_dooray()
+    return {"ok": True, "collected_at": (snap or {}).get("collected_at")}
 
 
 # ── 주간보고 구성(레이아웃) — 누구나 수정 가능한 공용 설정 ───────────

@@ -2867,7 +2867,12 @@ function manualRefresh() {
   setViewLoading(r);
   loadMeta();
   if (r !== 'alarms' && r !== 'dashboard') loadAlarms();   /* 상태배지 갱신(개요는 자체 로드) */
-  var done = loadRoute(r);                                  /* 활성 뷰 재조회(개요/인사이트는 AI 재생성 포함) */
+  /* 업무 현황·주간 보고는 Dooray 에서 실제 재수집(스냅샷이 하루 1회라 화면만 갱신되던 문제 해결).
+     재수집은 수 초~수십 초 → 완료 후 뷰를 재조회한다. 실패해도 뷰 재조회는 진행. */
+  var pre = (r === 'tasks' || r === 'weekly')
+    ? fetch('/api/dooray/refresh', { method: 'POST' }).catch(function () {})
+    : Promise.resolve();
+  var done = pre.then(function () { return loadRoute(r); });  /* 활성 뷰 재조회(개요/인사이트는 AI 재생성 포함) */
   var minSpin = new Promise(function (res) { setTimeout(res, 500); });   /* 최소 회전(깜빡임 방지) */
   Promise.all([Promise.resolve(done).catch(function () {}), minSpin]).then(function () {
     if (btn) { btn.classList.remove('spinning'); btn.disabled = false; }

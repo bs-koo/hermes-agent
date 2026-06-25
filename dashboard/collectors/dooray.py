@@ -283,3 +283,9 @@ def _collect(now, force=False):
 def run(now):
     """Dooray 수집 1회(base.run_job 으로 예외 격리). 스케줄러는 force 없이 호출(일일 가드)."""
     return base.run_job("dooray", lambda: _collect(now))
+
+
+def refresh(now):
+    """수동 강제 재수집 — 하루 1회 가드를 무시하고 Dooray 에서 다시 가져온다.
+    업무 현황/주간 보고 화면의 새로고침이 호출한다(스냅샷만 다시 읽으면 데이터가 안 바뀌므로)."""
+    return base.run_job("dooray", lambda: _collect(int(now), force=True))
