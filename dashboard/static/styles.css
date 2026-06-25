@@ -215,6 +215,14 @@ html, body {
 }
 .profile-sub { font-size: 11px; color: var(--muted); }
 
+/* 사이드바 하단 로그인 계정 + 로그아웃 버튼 */
+.sidebar-profile.sidebar-account { margin: 6px 12px 2px; padding: 8px 10px; }
+.sidebar-account .profile-text { flex: 1 1 auto; }
+.sidebar-account .account-logout {
+  flex: 0 0 auto; width: 30px; height: 30px; padding: 0; margin-left: 2px;
+}
+.sidebar-account .account-logout svg { width: 16px; height: 16px; }
+
 /* ══ 중앙 메인 ══════════════════════════════════════ */
 .main {
   flex: 1 1 auto;

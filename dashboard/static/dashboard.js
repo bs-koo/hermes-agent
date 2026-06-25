@@ -2913,6 +2913,20 @@ function bindRefresh() {
 /* ── 로그아웃 ───────────────────────────────────────────
  * 쿠키를 서버에서 만료시키고 로그인 화면으로 이동. 요청 성공/실패와 무관하게
  * (이미 만료됐을 수도 있으므로) 항상 /login 으로 보낸다. */
+/* 사이드바 하단에 로그인된 공용 계정(아이디)을 표시한다. */
+function loadAccount() {
+  fetch('/api/auth/me')
+    .then(function (r) { if (handle401(r)) return null; return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (!d || !d.username) return;
+      var name = document.getElementById('account-name');
+      if (name) name.textContent = d.username;            /* textContent — XSS 안전 */
+      var av = document.getElementById('account-avatar');
+      if (av) av.textContent = d.username.charAt(0).toUpperCase();
+    })
+    .catch(function () {});
+}
+
 function bindLogout() {
   var btn = document.getElementById('logout-btn');
   if (!btn) return;
@@ -2956,6 +2970,7 @@ function init() {
   bindRouteLinks();          /* KPI 타일·미니카드 → 라우트 이동 */
   bindRefresh();
   bindLogout();              /* 로그아웃 버튼 → 쿠키 만료 + /login 이동 */
+  loadAccount();             /* 사이드바에 로그인 계정 표시 */
   bindChat();
   bindHostModal();           /* EC2 상세 모달 닫기/배경/ESC */
   bindDbModal();             /* RDS 상세 모달 닫기/배경/ESC */
