@@ -16,12 +16,12 @@ import time
 import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request, Response
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse, RedirectResponse, FileResponse
 from pydantic import BaseModel
 
-from dashboard import config, storage, chat, insights
+from dashboard import config, storage, chat, insights, auth
 from dashboard.collectors import dooray as dooray_collector
 from dashboard.scheduler import Scheduler
 
@@ -62,6 +62,8 @@ def _series(raw):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 기동 전 인증 설정 검증(AUTH_SECRET 등 누락 시 즉시 기동 거부 — BR-4).
+    auth.ensure_configured()
     # 기동: 스키마 보장 후 스케줄러 데몬 시작
     storage.init_db()
     _scheduler.start()
@@ -82,6 +84,36 @@ async def _no_cache_static(request, call_next):
     if p == "/" or (p.endswith((".js", ".css", ".html")) and not p.endswith("chart.umd.min.js")):
         resp.headers["Cache-Control"] = "no-store"
     return resp
+
+
+# ── 인증 게이트(로그인/자산은 화이트리스트, 그 외는 쿠키 JWT 검증) ──────
+# Starlette 미들웨어는 LIFO 라 _no_cache_static 다음에 등록한 이 게이트가 더 바깥
+# (요청 시 먼저) 실행된다 — 미인증 요청은 핸들러 진입 전에 차단된다.
+def _is_whitelisted(path):
+    """인증 없이 접근 가능한 경로(로그인 화면·로그인/로그아웃 API·로그인에 필요한 자산).
+    리다이렉트 목적지 /login 과 그 자산을 모두 허용해 무한 리다이렉트를 막는다."""
+    # 경로 조작('..') 차단: `/fonts/../dashboard.js` 처럼 prefix 화이트리스트를 우회해
+    # 비인증으로 다른 자산에 접근하는 path traversal 을 막는다(정상 경로엔 '..' 가 없다).
+    if ".." in path:
+        return False
+    if path in ("/login", "/login.html", "/styles.css",
+                "/api/auth/login", "/api/auth/logout"):
+        return True
+    return path.startswith("/fonts/")
+
+
+@app.middleware("http")
+async def _auth_gate(request, call_next):
+    path = request.url.path
+    if _is_whitelisted(path):
+        return await call_next(request)
+    payload = auth.jwt_decode(auth.read_token(request) or "", config.AUTH_SECRET)
+    if payload is None:
+        if path.startswith("/api/"):
+            return JSONResponse({"error": "인증이 필요합니다"}, status_code=401)
+        # 프론트(브라우저) 경로 → 로그인 화면으로 이동
+        return RedirectResponse(url="/login", status_code=302)
+    return await call_next(request)
 
 
 # ── 패널 1: 알람 ──────────────────────────────────────────────────────
@@ -583,7 +615,70 @@ def api_chat_stream(payload: ChatRequest):
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 
-# ── 정적 프론트(/): 디렉토리가 있을 때만 마운트 ──────────────────────
+# 정적 디렉토리 경로(로그인 화면 FileResponse·mount 가 공유).
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+
+
+# ── 인증: 로그인/로그아웃/로그인 화면 ────────────────────────────────
+def _client_ip(request):
+    """레이트리밋용 클라이언트 IP.
+    기본은 TCP 피어 IP(request.client.host) — X-Forwarded-For 위조로 레이트리밋을
+    우회할 수 없게 한다. 신뢰 프록시(nginx/ALB) 뒤에 둘 때만 AUTH_TRUSTED_PROXY=true.
+    신뢰 모드에서도 XFF 첫 IP(클라가 위조 가능한 leftmost)는 쓰지 않는다 —
+    프록시가 단일 값으로 덮어쓰는 X-Real-IP 를 우선하고, 없으면 XFF 의 rightmost
+    (프록시가 본 직전 피어 = 위조 불가)를 쓴다.
+    (트레이드오프: 프록시 뒤 기본 모드는 모든 사용자가 프록시 IP 1개로 묶여 공유 잠금될 수 있다.)"""
+    if config.AUTH_TRUSTED_PROXY:
+        real = request.headers.get("x-real-ip")
+        if real and real.strip():
+            return real.strip()
+        xff = request.headers.get("x-forwarded-for")
+        if xff:
+            # rightmost = 신뢰 프록시가 관측한 직전 피어(클라가 leftmost 를 위조해도 영향 없음).
+            last = xff.split(",")[-1].strip()
+            if last:
+                return last
+    client = request.client
+    return client.host if client else "unknown"
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/auth/login")
+def api_auth_login(body: LoginRequest, request: Request):
+    ip = _client_ip(request)
+    locked = auth._rate_limiter.is_locked(ip)
+    if locked > 0:
+        mins = (locked + 59) // 60
+        return JSONResponse(
+            {"error": "로그인 시도가 너무 많습니다. %d분 후 다시 시도해 주세요" % mins},
+            status_code=429)
+    if not auth.authenticate(body.username, body.password):
+        auth._rate_limiter.record_failure(ip)
+        return JSONResponse(
+            {"error": "아이디 또는 비밀번호가 올바르지 않습니다"}, status_code=401)
+    # 성공: 카운터 초기화 + 인증 쿠키 설정(토큰은 본문에 싣지 않음 — httpOnly 만).
+    auth._rate_limiter.reset(ip)
+    resp = JSONResponse({"ok": True})
+    auth.set_auth_cookie(resp, auth.make_token())
+    return resp
+
+
+@app.post("/api/auth/logout")
+def api_auth_logout():
+    resp = JSONResponse({"ok": True})
+    auth.clear_auth_cookie(resp)
+    return resp
+
+
+@app.get("/login")
+def api_login_page():
+    return FileResponse(os.path.join(_STATIC_DIR, "login.html"))
+
+
+# ── 정적 프론트(/): 디렉토리가 있을 때만 마운트 ──────────────────────
 if os.path.isdir(_STATIC_DIR):
     app.mount("/", StaticFiles(directory=_STATIC_DIR, html=True), name="static")

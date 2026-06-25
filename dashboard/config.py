@@ -46,6 +46,20 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 GCHAT_WEBHOOK = os.environ.get("GCHAT_WEBHOOK", "").strip()
 ALERT_INTERVAL = int(os.environ.get("ALERT_INTERVAL", "300"))  # 5분
 
+# ── 인증(단일 공용 계정 JWT 로그인 게이트) ────────────────────────────
+# 자격증명·시크릿은 .env 로만 주입(평문·로그 금지). AUTH_SECRET 미설정 시 기동 거부.
+# AUTH_PASSWORD_HASH 는 PBKDF2 해시 문자열(`python -m dashboard.auth hash-password` 로 생성).
+AUTH_USERNAME      = os.environ.get("AUTH_USERNAME", "").strip()
+AUTH_PASSWORD_HASH = os.environ.get("AUTH_PASSWORD_HASH", "").strip()
+AUTH_SECRET        = os.environ.get("AUTH_SECRET", "").strip()
+AUTH_TOKEN_TTL_HOURS = int(os.environ.get("AUTH_TOKEN_TTL_HOURS", "8"))
+AUTH_MAX_ATTEMPTS    = int(os.environ.get("AUTH_MAX_ATTEMPTS", "5"))
+AUTH_LOCKOUT_MINUTES = int(os.environ.get("AUTH_LOCKOUT_MINUTES", "10"))
+# 운영(HTTPS 종단) 배포 시 .env 에 AUTH_COOKIE_SECURE=true 필수(로컬 http 는 기본 false).
+AUTH_COOKIE_SECURE = os.environ.get("AUTH_COOKIE_SECURE", "false").strip().lower() in ("1", "true", "yes")
+# 신뢰 프록시(nginx/ALB 등) 뒤에서만 X-Forwarded-For 를 신뢰한다. 기본 false(직접 노출 가정).
+AUTH_TRUSTED_PROXY = os.environ.get("AUTH_TRUSTED_PROXY", "false").strip().lower() in ("1", "true", "yes")
+
 # ── Dooray(업무 보고/인사이트) ────────────────────────────────────────
 # 민간 https://api.dooray.com / 공공 https://api.gov-dooray.com / 금융 https://api.dooray.co.kr
 # DOORAY_TOKEN 은 개인 액세스 토큰 "id:secret"(.env/컨테이너 env 주입, 평문·로그 금지).
