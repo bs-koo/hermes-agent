@@ -674,6 +674,13 @@ def api_auth_logout():
     return resp
 
 
+@app.get("/api/auth/me")
+def api_auth_me():
+    """현재 로그인된 공용 계정 정보(아이디). /api/* 라 게이트가 인증을 보장하므로
+    이 핸들러에 도달했다면 이미 유효한 쿠키가 검증된 상태다(사이드바 계정 표시용)."""
+    return {"username": config.AUTH_USERNAME}
+
+
 @app.get("/login")
 def api_login_page():
     return FileResponse(os.path.join(_STATIC_DIR, "login.html"))

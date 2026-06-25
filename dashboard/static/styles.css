@@ -215,6 +215,14 @@ html, body {
 }
 .profile-sub { font-size: 11px; color: var(--muted); }
 
+/* 사이드바 하단 로그인 계정 + 로그아웃 버튼 */
+.sidebar-profile.sidebar-account { margin: 6px 12px 12px; padding: 8px 10px; }
+.sidebar-account .profile-text { flex: 1 1 auto; }
+.sidebar-account .account-logout {
+  flex: 0 0 auto; width: 30px; height: 30px; padding: 0; margin-left: 2px;
+}
+.sidebar-account .account-logout svg { width: 16px; height: 16px; }
+
 /* ══ 중앙 메인 ══════════════════════════════════════ */
 .main {
   flex: 1 1 auto;
@@ -1583,19 +1591,6 @@ html, body {
 }
 .task-ai-h { font-size: 12.5px; font-weight: 700; color: var(--brand); letter-spacing: 0.01em; margin-bottom: 8px; }
 .task-ai-b { font-size: 13.5px; color: #41495a; line-height: 1.7; white-space: pre-wrap; }
-
-/* ── 사이드바 하단 데이터 소스 연결 상태(평면, border-top) ─── */
-.sidebar-profile.sidebar-sources {
-  flex-direction: column; align-items: stretch; gap: 7px;
-  margin-top: 0; padding: 12px 16px 16px;
-  border: none; border-top: 1px solid var(--border-soft);
-  border-radius: 0; background: transparent;
-}
-.src-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.src-dot { flex: 0 0 auto; width: 7px; height: 7px; border-radius: 50%; background: var(--ok-dot); }
-.src-dot.off { background: var(--insufficient); }
-.src-name { font-size: 12px; font-weight: 700; color: #3c4654; }
-.src-sub { font-size: 12px; color: var(--label); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── 업무 상태 색상 배지(진행/완료/할 일) ─────────────── */
 .status-badge {

@@ -939,22 +939,9 @@ function loadMeta() {
     } else {
       banner.hidden = true;
     }
-    /* 사이드바 데이터 소스 연결 점 — 잡 성공 여부로 색 갱신 */
-    var jobs = d.jobs || [];
-    var awsOk = jobs.some(function (j) {
-      return ['alarms', 'uptime', 'db', 'host', 'cdn'].indexOf(j.job) >= 0 && j.last_ok_at && !j.stale;
-    });
-    var dr = jobs.filter(function (j) { return j.job === 'dooray'; })[0];
-    _srcDot('src-aws-dot', awsOk);
-    _srcDot('src-dooray-dot', !!(dr && dr.last_ok_at && !dr.stale));
   }).catch(function () {
     /* meta 실패는 배너만 미갱신(다른 패널 영향 없음) */
   });
-}
-
-function _srcDot(id, ok) {
-  var el = document.getElementById(id);
-  if (el) el.classList.toggle('off', !ok);
 }
 
 /* ── 패널 1: 알람 ──────────────────────────────────────── */
@@ -2913,6 +2900,19 @@ function bindRefresh() {
 /* ── 로그아웃 ───────────────────────────────────────────
  * 쿠키를 서버에서 만료시키고 로그인 화면으로 이동. 요청 성공/실패와 무관하게
  * (이미 만료됐을 수도 있으므로) 항상 /login 으로 보낸다. */
+/* 사이드바 하단에 로그인된 공용 계정(아이디)을 표시한다. */
+function loadAccount() {
+  fetchJson('/api/auth/me')           /* 공통 헬퍼 — handle401·HTTP 에러 처리 일원화 */
+    .then(function (d) {
+      if (!d || !d.username) return;
+      var name = document.getElementById('account-name');
+      if (name) name.textContent = d.username;            /* textContent — XSS 안전 */
+      var av = document.getElementById('account-avatar');
+      if (av) av.textContent = d.username.charAt(0).toUpperCase();
+    })
+    .catch(function () {});             /* 미인증/일시 오류 시 계정만 비움(화면 영향 없음) */
+}
+
 function bindLogout() {
   var btn = document.getElementById('logout-btn');
   if (!btn) return;
@@ -2956,6 +2956,7 @@ function init() {
   bindRouteLinks();          /* KPI 타일·미니카드 → 라우트 이동 */
   bindRefresh();
   bindLogout();              /* 로그아웃 버튼 → 쿠키 만료 + /login 이동 */
+  loadAccount();             /* 사이드바에 로그인 계정 표시 */
   bindChat();
   bindHostModal();           /* EC2 상세 모달 닫기/배경/ESC */
   bindDbModal();             /* RDS 상세 모달 닫기/배경/ESC */
