@@ -186,17 +186,14 @@ def db_findings():
     return _stamp(out, _collected(snap))
 
 
-def _cdn_alert_active(did):
-    """이 배포의 CDN 5xx 신호가 현재 '발송됨(활성)' 상태인지 — 히스테리시스용.
-    alert_state(Chat 발송 추적)에 area=CDN 이고 제목에 did 가 든 항목이 있으면 True.
-    조회 실패는 비활성(False)으로 간주해 인사이트가 깨지지 않게 한다."""
+def _active_cdn_titles():
+    """현재 '발송됨(활성)' 상태인 CDN 신호의 제목 집합 — 히스테리시스 판정용.
+    cdn_findings 루프 밖에서 1회만 조회한다(N+1 회피). 조회 실패는 빈 집합."""
     try:
-        for a in storage.get_active_alerts():
-            if a.get("area") == "CDN" and did and did in (a.get("title") or ""):
-                return True
+        return {a.get("title") for a in storage.get_active_alerts()
+                if a.get("area") == "CDN"}
     except Exception:  # noqa: BLE001 — 상태 조회 실패는 비활성 처리
-        return False
-    return False
+        return set()
 
 
 def cdn_findings():
@@ -206,6 +203,7 @@ def cdn_findings():
     snap = storage.get_cdn()
     if not snap:
         return []
+    active = _active_cdn_titles()   # 활성 CDN 신호 제목 집합(루프 밖 1회 조회 — N+1 회피)
     out = []
     for d in (snap["payload"].get("distributions") or []):
         did = d.get("dist_id") or "CDN"
@@ -217,8 +215,10 @@ def cdn_findings():
         abs5 = (req * e5 / 100.0) if req is not None else None
         if abs5 is None or abs5 < CDN_5XX_MIN:
             continue
-        # 히스테리시스: 이미 떠 있는 신호는 해제 임계(1.5%)까지 유지, 새 신호는 주의 임계(2%) 초과부터.
-        fire_at = CDN_5XX_CLEAR if _cdn_alert_active(did) else CDN_5XX_WARN
+        title = f"{did} 5xx 서버에러율 상승"
+        # 히스테리시스: 이미 떠 있는 신호(제목 정확 일치)는 해제 임계(1.5%)까지 유지,
+        # 새 신호는 주의 임계(2%) 초과부터. (부분일치 대신 정확 일치로 유사 ID 오탐 방지)
+        fire_at = CDN_5XX_CLEAR if title in active else CDN_5XX_WARN
         if e5 <= fire_at:
             continue
         sev = "critical" if e5 > CDN_5XX_CRIT else "warning"
@@ -234,7 +234,7 @@ def cdn_findings():
                "원본이 원인이면 서버 로그와 헬스체크를 확인하세요"]
         if not kind:
             act.append("5xx 유형(502/503/504)이 안 보이면 CloudFront 추가 지표를 활성화하세요")
-        out.append(_f(sev, "CDN", f"{did} 5xx 서버에러율 상승",
+        out.append(_f(sev, "CDN", title,
                       ev, meaning=mean, action=act, route="cdn"))
         # 4xx(클라이언트 오류)는 흔한 노이즈 — 운영 판단에 불필요해 인사이트에서 제외(5xx만 신호화)
     return _stamp(out, _collected(snap))
