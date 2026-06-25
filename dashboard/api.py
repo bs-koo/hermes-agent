@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Query
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from dashboard import config, storage, chat, insights
@@ -428,9 +429,15 @@ def api_dooray_layout_put(body: LayoutBody):
 # ── 월간 리포트: (month, tag, subject) 누적 → 프론트가 레이아웃으로 분류 ──
 @app.get("/api/dooray/monthly")
 def api_dooray_monthly(month: str = Query(None)):
-    months = storage.get_dooray_history_months()
+    import datetime
+    # 월간 리포트는 '완료된 달'만 보여준다(진행 중인 이번 달 제외 — 매일 변해 요약 토큰 낭비).
+    cur_m = datetime.datetime.fromtimestamp(
+        time.time() + 9 * 3600, datetime.timezone.utc).strftime("%Y-%m")
+    all_months = storage.get_dooray_history_months()
+    months = [m for m in all_months if m < cur_m]
     if not months:
-        return {"empty": True, "months": []}
+        # 완료된 달이 아직 없음(이번 달만 진행 중) → 프론트가 안내 표시
+        return {"empty": True, "months": [], "pending_current": cur_m in all_months}
     sel = month if (month in months) else months[0]
     rows = storage.get_dooray_history(sel)
     tasks = [{
@@ -440,6 +447,7 @@ def api_dooray_monthly(month: str = Query(None)):
         "workflowClass": r["wfclass"],
         "assignee": r["assignee"],
         "body": r["body"] or "",
+        "ai_summary": r["ai_summary"],
         "week": r["week"],
     } for r in rows]
     return {"empty": False, "month": sel, "months": months, "tasks": tasks}
@@ -519,6 +527,51 @@ def api_chat(payload: ChatRequest):
     if len(q) > _MAX_QUESTION_LEN:
         return {"error": f"질문이 너무 깁니다(최대 {_MAX_QUESTION_LEN}자)"}
     return chat.answer_question(q)
+
+
+def _sse(obj):
+    """dict → SSE data 프레임 문자열."""
+    return "data: " + json.dumps(obj, ensure_ascii=False) + "\n\n"
+
+
+@app.post("/api/chat/stream")
+def api_chat_stream(payload: ChatRequest):
+    """채팅 스트리밍 — Gemini 답변 토큰을 SSE 로 흘려보내 체감 지연을 줄인다.
+    프레임: {"text": 조각}* 이후 {"error": 메시지}(실패 시) → 마지막 [DONE].
+    비스트리밍 /api/chat 은 폴백으로 유지."""
+    q = (payload.question or "").strip()
+
+    def gen():
+        if not q:
+            yield _sse({"error": "질문이 비었습니다"})
+            yield "data: [DONE]\n\n"
+            return
+        if len(q) > _MAX_QUESTION_LEN:
+            yield _sse({"error": f"질문이 너무 깁니다(최대 {_MAX_QUESTION_LEN}자)"})
+            yield "data: [DONE]\n\n"
+            return
+        got = False
+        errored = False
+        try:
+            for ev in chat.answer_question_stream(q):
+                if ev.get("text"):
+                    got = True
+                    yield _sse({"text": ev["text"]})
+                elif ev.get("error"):
+                    errored = True
+                    yield _sse({"error": ev["error"]})
+        except Exception:  # noqa: BLE001 — 스트림 중 예외도 프레임으로 통지
+            errored = True
+            yield _sse({"error": "응답 생성 중 오류가 발생했습니다"})
+        # 텍스트도 에러도 하나도 못 받았을 때만 마지막 폴백(에러 중복 표시 방지).
+        if not got and not errored:
+            yield _sse({"error": "응답을 받지 못했습니다"})
+        yield "data: [DONE]\n\n"
+
+    # X-Accel-Buffering:no — 프록시(nginx 등) 버퍼링 비활성으로 즉시 전달.
+    return StreamingResponse(
+        gen(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 
 # ── 정적 프론트(/): 디렉토리가 있을 때만 마운트 ──────────────────────

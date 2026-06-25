@@ -1075,6 +1075,7 @@ html, body {
 .dc-event { display: flex; align-items: center; gap: 9px; padding: 5px 4px; }
 .dc-dot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
 .dc-time { flex: 0 0 auto; min-width: 46px; font-size: 12.5px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.dc-time:empty { display: none; }  /* 종일(연차·반차 등) 일정: 빈 시간 칸이 마커~제목 사이 공간을 먹지 않게 */
 .dc-title { flex: 1; min-width: 0; font-size: 13.5px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dc-demo { margin-top: 10px; font-size: 11.5px; color: var(--amber); }
 /* KPI 스트립 ↔ 영역 미니카드 사이 충분한 간격(맞닿음 해소) */
@@ -1536,6 +1537,18 @@ html, body {
 .wk-proj { font-weight: 700; color: var(--text); margin: 9px 0 2px; }
 .wk-task { padding-left: 14px; color: var(--text); }
 .wk-sub { padding-left: 30px; color: var(--muted); font-size: 13px; }
+/* 월간 리포트 아코디언 — 제목 클릭 시 AI 요약(없으면 원본) 펼침 */
+.wk-task--toggle { cursor: pointer; user-select: none; padding-left: 0; border-radius: 6px; transition: background .12s, color .12s; }
+.wk-task--toggle:hover { background: var(--bg); color: var(--accent); }
+.wk-task--toggle::before { content: '▶'; display: inline-block; width: 18px; color: var(--accent); font-size: 11px; transition: transform .15s; }
+.wk-task--open { color: var(--accent); font-weight: 600; }
+.wk-task--open::before { transform: rotate(90deg); }
+.wk-detail { padding: 1px 0 8px 18px; }
+/* AI 요약: accent 보더 + 라벨로 원본 본문과 명확히 구분 */
+.wk-summary { color: var(--text); font-size: 13px; line-height: 1.6; white-space: pre-wrap;
+  padding: 7px 11px; background: var(--bg); border-left: 2px solid var(--accent); border-radius: 0 6px 6px 0; }
+.wk-summary::before { content: '🤖 AI 요약'; display: block; font-size: 10.5px; font-weight: 700;
+  color: var(--accent); margin-bottom: 4px; letter-spacing: .02em; }
 .wk-plain { color: var(--muted); }
 
 /* ── 클릭형 업무 행 ─────────────────────────────────────── */

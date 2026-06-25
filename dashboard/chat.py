@@ -17,6 +17,9 @@ from dashboard import config, storage
 
 GEMINI_URL = ("https://generativelanguage.googleapis.com/v1beta/models/"
               "{model}:generateContent?key={key}")
+# 스트리밍 엔드포인트(SSE) — 답변 토큰을 흘려보내 체감 지연을 줄인다.
+GEMINI_STREAM_URL = ("https://generativelanguage.googleapis.com/v1beta/models/"
+                     "{model}:streamGenerateContent?alt=sse&key={key}")
 
 # 답변 말투·형식 강제 규칙(모든 답변 공통). 제공자(Gemini/기타) 무관하게 적용.
 ANSWER_RULES = (
@@ -243,24 +246,87 @@ def _calendar_ctx():
     return "\n".join(lines)
 
 
-def _build_context():
-    """현재 수집 데이터 요약 컨텍스트(빈 DB 에서도 안전)."""
+# ── 컨텍스트 섹션 라우팅(질문 키워드 → 관련 섹션만 선택) ───────────────
+# 질문에 맞는 섹션만 Gemini 에 넣어 입력 토큰·추론 시간을 줄인다. 매칭이 하나도 없거나
+# '전체/현황' 류 광역 질문이면 전체를 넣어 데이터 누락을 막는다(품질 우선).
+_CTX_FUNCS = {
+    "alarms": _alarms_ctx, "uptime": _uptime_ctx, "host": _host_ctx,
+    "cdn": _cdn_ctx, "db": _db_ctx, "traffic": _traffic_ctx,
+    "dooray": _dooray_ctx, "calendar": _calendar_ctx,
+}
+# 전체 섹션 순서(매칭 0 / 광역 질문 시 그대로 사용).
+_CTX_ALL = ("alarms", "uptime", "host", "cdn", "db", "traffic", "dooray", "calendar")
+# 무슨 질문이든 항상 포함(짧고 운영 필수 — 전반 상태 인지).
+_CTX_ALWAYS = ("alarms", "uptime")
+# 질문 키워드(소문자 비교) → 섹션. 한글은 lower 영향 없음, 영문 약어는 소문자로.
+_CTX_KEYWORDS = {
+    "alarms": ["알람", "경보", "alarm"],
+    "uptime": ["가동", "가용", "uptime", "응답", "지연", "다운", "장애", "느"],
+    "host": ["ec2", "호스트", "서버", "인스턴스", "cpu", "크레딧", "메모리"],
+    "cdn": ["cdn", "cloudfront", "캐시", "엣지", "5xx", "4xx", "에러율"],
+    "db": ["db", "디비", "rds", "데이터베이스", "디스크", "연결", "스토리지", "저장공간"],
+    "traffic": ["트래픽", "요청", "사용자", "방문", "접속", "traffic", "스캐너", "봇"],
+    "dooray": ["업무", "두레이", "dooray", "과제", "진행", "주간", "담당", "작업"],
+    "calendar": ["일정", "캘린더", "휴가", "반차", "연차", "회의", "근태", "외근", "출장"],
+}
+# 전체를 강제하는 광역 질문 신호.
+_CTX_BROAD = ["전체", "전반", "요약", "현황", "상황", "모두", "전부", "overview", "summary"]
+
+
+def _select_ctx_keys(question):
+    """질문에서 포함할 컨텍스트 섹션 키 목록을 고른다(원래 순서 유지)."""
+    q = (question or "").lower()
+    if q and not any(b in q for b in _CTX_BROAD):
+        matched = {k for k, kws in _CTX_KEYWORDS.items() if any(w in q for w in kws)}
+        if matched:
+            sel = matched | set(_CTX_ALWAYS)
+            return [k for k in _CTX_ALL if k in sel]
+    return list(_CTX_ALL)  # 광역 질문·키워드 미매칭·질문 없음 → 전체
+
+
+def _build_context(question=None):
+    """현재 수집 데이터 요약 컨텍스트(빈 DB 에서도 안전).
+    question 이 주어지면 관련 섹션만 추려 토큰을 절감한다(없으면 전체)."""
     now_kst = _kst(int(datetime.datetime.now(datetime.timezone.utc).timestamp()))
-    parts = [
-        f"[현재 시각(KST): {now_kst}]",
-        _alarms_ctx(),
-        _uptime_ctx(),
-        _host_ctx(),
-        _cdn_ctx(),
-        _db_ctx(),
-        _traffic_ctx(),
-        _dooray_ctx(),
-        _calendar_ctx(),
-    ]
+    parts = [f"[현재 시각(KST): {now_kst}]"]
+    for k in _select_ctx_keys(question):
+        parts.append(_CTX_FUNCS[k]())
     return "\n\n".join(parts)
 
 
 # ── Gemini REST 호출 ──────────────────────────────────────────────────
+# 무료 사용량 한도(429)는 기술 코드 대신 사용자 친화 안내로 바꾼다. 응답 본문으로
+# 일일(PerDay) 한도와 분당(PerMinute) 한도를 구분해 회복 시점을 정확히 안내한다.
+_RATE_LIMIT_DAY = ("오늘 무료 사용량(일일 한도)을 모두 썼어요. 한국시각 자정 무렵 리셋되며, "
+                   "더 자주 쓰려면 모델 변경이나 유료 전환이 필요해요.")
+_RATE_LIMIT_MIN = "요청이 잠시 몰렸어요. 30초쯤 후 다시 시도해 주세요(분당 한도)."
+
+
+def _http_err_msg(e):
+    """HTTPError → 사용자 친화 메시지. 429 는 응답 본문으로 일일/분당 한도를 구분한다.
+    주의: 429 응답은 PerDay·PerMinute violation 을 함께 나열하므로 단순 'PerDay' 문자열
+    매칭은 분당 한도를 일일로 오인한다(2.0-flash 는 분당만 걸려도 PerDay 가 목록에 뜬다).
+    PerDay 에 한도값(quotaValue)이 실제로 명시될 때만 '오늘 소진'으로 판단한다."""
+    code = getattr(e, "code", None)
+    if code == 429:
+        try:
+            body = e.read().decode("utf-8", "replace")
+        except Exception:  # noqa: BLE001 — 본문 못 읽으면 분당 안내로 폴백
+            body = ""
+        day_hit = False
+        try:
+            err = json.loads(body).get("error", {})
+            for d in err.get("details", []):
+                if "QuotaFailure" in d.get("@type", ""):
+                    for v in d.get("violations", []):
+                        if "PerDay" in (v.get("quotaId") or "") and v.get("quotaValue"):
+                            day_hit = True
+        except Exception:  # noqa: BLE001 — 파싱 실패 시 보수적 폴백
+            day_hit = "PerDay" in body
+        return _RATE_LIMIT_DAY if day_hit else _RATE_LIMIT_MIN
+    return f"Gemini 호출 실패(HTTP {code})"
+
+
 def _gemini_call(prompt, max_tokens=800, temperature=0.2):
     """Gemini REST 호출 공통 헬퍼. 성공: {"answer": text} / 실패: {"error": msg}.
     일시 오류(5xx/429/네트워크)는 점증 백오프로 최대 3회 재시도, 4xx 는 즉시 반환."""
@@ -283,7 +349,7 @@ def _gemini_call(prompt, max_tokens=800, temperature=0.2):
     data = None
     # 일시적 오류(5xx/429: Gemini 과부하, DNS/네트워크)는 최대 3회까지 재시도.
     # 4xx(키/요청 오류)는 재시도 무의미 → 즉시 반환.
-    _RETRYABLE = (429, 500, 502, 503, 504)
+    _RETRYABLE = (500, 502, 503, 504)  # 429 제외: 일일 한도는 재시도해도 안 풀리고 한도만 더 소진
     last_err = "알 수 없음"
     for attempt in range(3):
         try:
@@ -294,7 +360,7 @@ def _gemini_call(prompt, max_tokens=800, temperature=0.2):
             if e.code in _RETRYABLE and attempt < 2:
                 time.sleep(1.5 * (attempt + 1))  # 점증 백오프
                 continue
-            return {"error": f"Gemini 호출 실패(HTTP {e.code})"}
+            return {"error": _http_err_msg(e)}
         except Exception as e:  # noqa: BLE001 — URLError(DNS/네트워크) 등 일시 실패
             last_err = str(e)
             if attempt < 2:
@@ -316,10 +382,87 @@ def _gemini_call(prompt, max_tokens=800, temperature=0.2):
 def answer_question(question):
     """질문을 현재 수집 데이터 컨텍스트와 함께 Gemini 에 보내 한국어 답변을 받는다.
     성공: {"answer": text}. 키 미설정/호출 실패: {"error": ...}."""
-    context = _build_context()
+    context = _build_context(question)
     prompt = (f"{SYSTEM_PROMPT}\n\n[현재 수집 데이터]\n{context}\n\n"
               f"[질문]\n{question}")
     return _gemini_call(prompt, max_tokens=800)
+
+
+# ── Gemini SSE 스트리밍(답변 조각을 순서대로 흘려보냄) ────────────────
+def _gemini_stream(prompt, max_tokens=800, temperature=0.2):
+    """Gemini streamGenerateContent(SSE)를 호출해 텍스트 조각을 순서대로 yield 한다.
+    각 yield 는 {"text": 조각} 또는 {"error": 메시지}. 예외를 밖으로 던지지 않는다
+    (라우트가 SSE 한가운데서 끊기지 않도록). 단일 워커 전제 동기 호출."""
+    key = config.GEMINI_API_KEY
+    if not key:
+        yield {"error": "GEMINI_API_KEY 미설정"}
+        return
+    body = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": temperature, "maxOutputTokens": max_tokens,
+                             # 비스트리밍과 동일하게 thinking 끔(출력 예산 절약·지연 단축).
+                             "thinkingConfig": {"thinkingBudget": 0}},
+    }, ensure_ascii=False).encode("utf-8")
+    url = GEMINI_STREAM_URL.format(model=config.GEMINI_MODEL, key=key)
+    req = urllib.request.Request(
+        url, data=body,
+        headers={"Content-Type": "application/json; charset=UTF-8"})
+
+    # 연결(urlopen)까지는 _gemini_call 과 동일하게 재시도한다 — Docker DNS 일시 실패
+    # (Temporary failure in name resolution)·5xx·네트워크 흔들림을 흡수. 한 번 열린
+    # 뒤 스트림 도중 끊김은 받은 만큼만 내보내고 종료(중간 재시도는 안 함).
+    _RETRYABLE = (500, 502, 503, 504)  # 429 제외: 일일 한도는 재시도해도 안 풀리고 한도만 더 소진
+    resp = None
+    last_err = "알 수 없음"
+    for attempt in range(3):
+        try:
+            resp = urllib.request.urlopen(req, timeout=60)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code in _RETRYABLE and attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            yield {"error": _http_err_msg(e)}
+            return
+        except Exception as e:  # noqa: BLE001 — URLError(DNS/네트워크) 등 일시 실패
+            last_err = str(e)
+            if attempt < 2:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            yield {"error": f"Gemini 호출 실패: {last_err}"}
+            return
+    if resp is None:
+        yield {"error": "Gemini 호출 실패(재시도 소진)"}
+        return
+
+    try:
+        with resp as r:
+            # SSE 는 줄 단위 "data: {json}". urllib 응답은 줄 단위로 순회 가능.
+            for raw in r:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                payload = line[5:].strip()
+                if not payload or payload == "[DONE]":
+                    continue
+                try:
+                    j = json.loads(payload)
+                    txt = j["candidates"][0]["content"]["parts"][0]["text"]
+                except (KeyError, IndexError, TypeError, ValueError):
+                    continue  # 메타 프레임(끝맺음·안전등급 등)은 건너뜀
+                if txt:
+                    yield {"text": txt}
+    except Exception as e:  # noqa: BLE001 — 스트림 도중 끊김: 받은 만큼만 종료
+        yield {"error": f"Gemini 스트림 중단: {e}"}
+
+
+def answer_question_stream(question):
+    """질문+컨텍스트로 Gemini 스트리밍 답변 조각을 순서대로 yield.
+    각 항목은 {"text": 조각} 또는 {"error": 메시지}."""
+    context = _build_context(question)
+    prompt = (f"{SYSTEM_PROMPT}\n\n[현재 수집 데이터]\n{context}\n\n"
+              f"[질문]\n{question}")
+    yield from _gemini_stream(prompt, max_tokens=800)
 
 
 # ── 업무 요약(Dooray 업무 본문+코멘트 → 운영 보고용 2~3문장) ──────────

@@ -467,17 +467,7 @@
             <div class="state-empty" data-state="empty" hidden>데이터 없음</div>
             <div class="state-error" data-state="error" hidden></div>
             <div class="state-ok" data-state="ok" hidden>
-              <!-- 생성 전: 안내 + 생성 버튼 -->
-              <div class="weekly-gen" id="weekly-gen">
-                <div class="weekly-gen-icon" aria-hidden="true">📋</div>
-                <div class="weekly-gen-title">전주 실적 주간보고 만들기</div>
-                <div class="weekly-gen-desc">지금까지 수집된 이번 주 업무를 도전·개선·생존 분류에 맞춰 파트장 메일 형식으로 정리해요.</div>
-                <div class="weekly-gen-actions">
-                  <button type="button" class="btn-soft js-layout-edit" id="weekly-edit" hidden>구성 편집</button>
-                  <button type="button" class="btn-primary" id="weekly-generate">주간보고 생성</button>
-                </div>
-              </div>
-              <!-- 생성 후: 미리보기 + 복사 -->
+              <!-- 진입 시 자동 생성 → 미리보기만 표시(별도 '만들기' 영역 없음) -->
               <div id="weekly-preview-wrap" hidden>
                 <div class="report-head">
                   <div class="report-head-l">
@@ -664,13 +654,13 @@
         </div>
         <!-- 예시 질문 칩(클릭 시 자동 전송) -->
         <div class="chat-chips" id="chat-chips">
-          <button type="button" class="chat-chip" data-q="지금 알람 상태 어때?">지금 알람 상태</button>
-          <button type="button" class="chat-chip" data-q="DB 상태 어때?">DB 상태 어때?</button>
-          <button type="button" class="chat-chip" data-q="가동률·응답시간 괜찮아?">가동률 괜찮아?</button>
-          <button type="button" class="chat-chip" data-q="이번주 업무 진행 현황 요약해줘">이번주 업무 현황</button>
-          <button type="button" class="chat-chip" data-q="진행 중인데 막혀 보이는 업무 있어?">막힌 업무 있어?</button>
-          <button type="button" class="chat-chip" data-q="오늘 휴가나 반차인 사람 있어?">오늘 휴가 누구야?</button>
-          <button type="button" class="chat-chip" data-q="이번주 회의·일정 알려줘">이번주 회의 일정</button>
+          <button type="button" class="chat-chip" data-q="지금 경보(ALARM) 상태인 알람이 있는지, 있으면 무엇인지 알려줘">경보 있어?</button>
+          <button type="button" class="chat-chip" data-q="지금 주의해야 할 운영 신호(인사이트)가 있는지 알려줘">주의 신호 있어?</button>
+          <button type="button" class="chat-chip" data-q="최근 24시간 가동률과 응답시간이 괜찮은지 알려줘">가동률 어때?</button>
+          <button type="button" class="chat-chip" data-q="주 DB의 CPU·연결 수·여유 저장공간 상태를 알려줘">DB 상태는?</button>
+          <button type="button" class="chat-chip" data-q="EC2 서버들의 CPU 사용률이 어떤지 알려줘">서버 CPU는?</button>
+          <button type="button" class="chat-chip" data-q="최근 트래픽과 활성 사용자 수가 어떤지 알려줘">트래픽·사용자</button>
+          <button type="button" class="chat-chip" data-q="이번 주 우리 파트 업무 진행 현황을 요약해줘">이번주 업무 현황</button>
         </div>
       </div>
 

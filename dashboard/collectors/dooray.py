@@ -8,6 +8,7 @@
 import re
 import json
 import html
+import time
 import datetime
 import urllib.request
 import urllib.parse
@@ -274,7 +275,10 @@ def _collect(now, force=False):
                     "month": month, "tag": tag, "subject": subj,
                     "status": t.get("status"), "wfclass": t.get("workflowClass"),
                     "assignee": t.get("assignee"), "week": week_name,
-                    "body": t.get("body") or "", "last_at": int(now),
+                    "body": t.get("body") or "",
+                    # 이번 주 요약은 이미 만든 것(주간 보고용)을 재사용 → 월간 저장에 추가 토큰 0
+                    "ai_summary": t.get("ai_summary"),
+                    "last_at": int(now),
                 })
         storage.upsert_dooray_history(hist)
 
@@ -282,3 +286,84 @@ def _collect(now, force=False):
 def run(now):
     """Dooray 수집 1회(base.run_job 으로 예외 격리). 스케줄러는 force 없이 호출(일일 가드)."""
     return base.run_job("dooray", lambda: _collect(now))
+
+
+def backfill_month(year_month, now=None):
+    """완료된 과거 달(YYYY-MM)의 모든 주차 마일스톤 업무를 한 번 수집·요약해
+    dooray_task_history 에 채운다(일일 수집과 별개의 1회성 백필).
+    이미 요약된 업무는 재요약하지 않는다(토큰 절약). 반환: 처리 통계 dict."""
+    if not config.DOORAY_TOKEN:
+        return {"error": "DOORAY_TOKEN 미설정"}
+    pid = config.DOORAY_PROJECT_ID
+    ts = int(now or time.time())
+
+    tag_map = {t.get("id"): t.get("name")
+               for t in _paginate(f"/project/v1/projects/{pid}/tags")}
+    wf_map = {}
+    try:
+        for w in (_get(f"/project/v1/projects/{pid}/workflows").get("result") or []):
+            wf_map[w.get("id")] = w.get("name")
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 해당 월에 시작한 주차(마일스톤)만 대상.
+    milestones = _paginate(f"/project/v1/projects/{pid}/milestones")
+    target = [m for m in milestones
+              if (_date(m.get("startedAt"))
+                  and _date(m.get("startedAt")).strftime("%Y-%m") == year_month)]
+
+    # 이미 백필된 요약은 재사용(재요약 회피).
+    prev = {}
+    for r in storage.get_dooray_history(year_month):
+        if r.get("ai_summary"):
+            prev[(r["tag"], r["subject"])] = r["ai_summary"]
+
+    hist = []
+    stat = {"month": year_month, "milestones": len(target),
+            "tasks": 0, "summarized": 0, "reused": 0}
+    for m in target:
+        week_name = m.get("name")
+        rows = _paginate(f"/project/v1/projects/{pid}/posts", milestoneIds=m.get("id"))
+        posts = [p for p in rows if (p.get("milestone") or {}).get("id") == m.get("id")]
+        for p in posts[:_DETAIL_CAP]:
+            subj = (p.get("subject") or "").strip()
+            if not subj:
+                continue
+            stat["tasks"] += 1
+            tids = [t.get("id") for t in (p.get("tags") or [])]
+            tnames = [tag_map.get(x) for x in tids if tag_map.get(x)] or ["기타"]
+            wf = p.get("workflow") or {}
+            status = (wf_map.get(wf.get("id")) or _CLASS_KR.get(p.get("workflowClass"))
+                      or p.get("workflowClass"))
+            body = ""
+            try:
+                dr = (_get(f"/project/v1/projects/{pid}/posts/{p['id']}").get("result") or {})
+                b = (dr.get("body") or {})
+                body = _strip_html(b.get("content") if isinstance(b, dict) else "")[:2000]
+            except Exception:  # noqa: BLE001
+                pass
+            comments = _comments(pid, p.get("id"))
+
+            ai = None
+            for tag in tnames:                      # 이미 요약했으면 재사용
+                if (tag, subj) in prev:
+                    ai = prev[(tag, subj)]
+                    stat["reused"] += 1
+                    break
+            if ai is None and (body or comments):
+                try:
+                    ai = chat.summarize_task(subj, body, comments)
+                    if ai:
+                        stat["summarized"] += 1
+                except Exception:  # noqa: BLE001 — 요약 실패는 본문만 저장
+                    ai = None
+
+            for tag in tnames:
+                hist.append({
+                    "month": year_month, "tag": tag, "subject": subj,
+                    "status": status, "wfclass": p.get("workflowClass"),
+                    "assignee": _assignee(p.get("users")), "week": week_name,
+                    "body": body, "ai_summary": ai, "last_at": ts,
+                })
+    storage.upsert_dooray_history(hist)
+    return stat

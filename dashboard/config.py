@@ -40,6 +40,12 @@ UPTIME_CSV = os.environ.get("UPTIME_CSV", _DEFAULT_UPTIME_CSV)
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
+# ── Google Chat 푸시(주의 신호 알림) ──────────────────────────────────
+# 인사이트(critical/warning)가 새로 뜨거나 해소될 때만 이 웹훅으로 알린다(평소 조용).
+# 미설정이면 푸시를 건너뛴다(빈 상태). 발송 주기는 ALERT_INTERVAL(초).
+GCHAT_WEBHOOK = os.environ.get("GCHAT_WEBHOOK", "").strip()
+ALERT_INTERVAL = int(os.environ.get("ALERT_INTERVAL", "300"))  # 5분
+
 # ── Dooray(업무 보고/인사이트) ────────────────────────────────────────
 # 민간 https://api.dooray.com / 공공 https://api.gov-dooray.com / 금융 https://api.dooray.co.kr
 # DOORAY_TOKEN 은 개인 액세스 토큰 "id:secret"(.env/컨테이너 env 주입, 평문·로그 금지).

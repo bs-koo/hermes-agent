@@ -96,6 +96,7 @@ def init_db():
           assignee TEXT,
           week TEXT,
           body TEXT,
+          ai_summary TEXT,
           first_at INTEGER,
           last_at INTEGER,
           PRIMARY KEY (month, tag, subject));
@@ -106,6 +107,11 @@ def init_db():
           last_run_at INTEGER,
           last_status TEXT,
           last_error TEXT);
+
+        CREATE TABLE IF NOT EXISTS alert_state (
+          alert_key TEXT PRIMARY KEY,
+          severity TEXT, area TEXT, title TEXT, evidence TEXT,
+          first_seen INTEGER);
         """)
         # 마이그레이션: 기존 named volume 의 alarm_state 에 detail_json 이 없으면 추가.
         # 새 DB 는 위 CREATE 에 이미 포함되므로 이 ALTER 는 "이미 있음" 에러로 무시된다.
@@ -113,6 +119,11 @@ def init_db():
             conn.execute("ALTER TABLE alarm_state ADD COLUMN detail_json TEXT")
         except sqlite3.OperationalError:
             pass  # duplicate column name → 이미 존재(정상)
+        # 월간 히스토리 AI 요약 컬럼(기존 named volume 마이그레이션 — 새 DB 는 CREATE 에 포함).
+        try:
+            conn.execute("ALTER TABLE dooray_task_history ADD COLUMN ai_summary TEXT")
+        except sqlite3.OperationalError:
+            pass  # 이미 존재(정상)
         conn.commit()
     finally:
         conn.close()
@@ -345,9 +356,9 @@ def upsert_dooray_history(rows):
     try:
         conn.executemany("""
             INSERT INTO dooray_task_history
-              (month, tag, subject, status, wfclass, assignee, week, body, first_at, last_at)
+              (month, tag, subject, status, wfclass, assignee, week, body, ai_summary, first_at, last_at)
             VALUES
-              (:month, :tag, :subject, :status, :wfclass, :assignee, :week, :body, :last_at, :last_at)
+              (:month, :tag, :subject, :status, :wfclass, :assignee, :week, :body, :ai_summary, :last_at, :last_at)
             ON CONFLICT(month, tag, subject) DO UPDATE SET
               status=excluded.status,
               wfclass=excluded.wfclass,
@@ -355,6 +366,7 @@ def upsert_dooray_history(rows):
               week=excluded.week,
               body=CASE WHEN length(COALESCE(excluded.body,'')) >= length(COALESCE(dooray_task_history.body,''))
                         THEN excluded.body ELSE dooray_task_history.body END,
+              ai_summary=COALESCE(excluded.ai_summary, dooray_task_history.ai_summary),
               last_at=excluded.last_at
         """, rows)
         conn.commit()
@@ -367,7 +379,7 @@ def get_dooray_history(month):
     conn = connect()
     try:
         cur = conn.execute("""
-            SELECT month, tag, subject, status, wfclass, assignee, week, body, first_at, last_at
+            SELECT month, tag, subject, status, wfclass, assignee, week, body, ai_summary, first_at, last_at
             FROM dooray_task_history WHERE month = ? ORDER BY tag, first_at
         """, (month,))
         return [dict(r) for r in cur.fetchall()]
@@ -532,6 +544,46 @@ def get_cdn():
             return None
         return {"payload": json.loads(row["payload_json"]),
                 "collected_at": row["collected_at"]}
+    finally:
+        conn.close()
+
+
+# ── 주의 신호 알림 상태(Chat 푸시 중복 방지) ─────────────────────────
+def get_active_alerts():
+    """현재 '발송됨' 상태로 추적 중인 주의 신호 목록."""
+    conn = connect()
+    try:
+        cur = conn.execute(
+            "SELECT alert_key, severity, area, title, evidence, first_seen FROM alert_state")
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def upsert_active_alert(alert_key, severity, area, title, evidence, first_seen):
+    """발송한 신호를 활성 상태로 기록(이미 있으면 갱신)."""
+    conn = connect()
+    try:
+        conn.execute("""
+            INSERT INTO alert_state (alert_key, severity, area, title, evidence, first_seen)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(alert_key) DO UPDATE SET
+              severity=excluded.severity, area=excluded.area,
+              title=excluded.title, evidence=excluded.evidence
+        """, (alert_key, severity, area, title, evidence, first_seen))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_active_alerts(keys):
+    """해소된 신호를 활성 목록에서 제거."""
+    if not keys:
+        return
+    conn = connect()
+    try:
+        conn.executemany("DELETE FROM alert_state WHERE alert_key = ?", [(k,) for k in keys])
+        conn.commit()
     finally:
         conn.close()
 

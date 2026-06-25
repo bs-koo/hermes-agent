@@ -891,8 +891,10 @@ function loadDashboardCal() {
     var weekEnd = t0 + daysToMon * 86400;
     var wk = evs.filter(function (e) { return e.start >= t0 && e.start < weekEnd; })
                 .sort(function (a, b) { return a.start - b.start; });
-    _renderAgenda(leaveHost, wk.filter(_isLeave), '이번 주 근태가 없습니다.');
-    _renderAgenda(workHost, wk.filter(function (e) { return !_isLeave(e); }), '이번 주 업무 일정이 없습니다.');
+    /* 개요에선 각 섹션을 오늘 포함 가까운 3건까지만(시간순). 전체 일정은 #/calendar 월간 달력에서. */
+    var DASH_CAL_MAX = 3;
+    _renderAgenda(leaveHost, wk.filter(_isLeave).slice(0, DASH_CAL_MAX), '이번 주 근태가 없습니다.');
+    _renderAgenda(workHost, wk.filter(function (e) { return !_isLeave(e); }).slice(0, DASH_CAL_MAX), '이번 주 업무 일정이 없습니다.');
     var note = document.getElementById('dash-cal-note');
     if (note) { note.hidden = !demo; note.textContent = demo ? '예시 데이터 (iCal 연동 전 미리보기)' : ''; }
   }).catch(function () { leaveHost.innerHTML = '<span class="mini-muted">불러오기 실패</span>'; workHost.innerHTML = ''; });
@@ -1461,8 +1463,8 @@ function loadHost() {
     var series = insts
       .filter(function (it) { return it.cpu_series && it.cpu_series.length; })
       .map(function (it, i) {
-        /* 범례·툴팁은 IP 우선(없으면 역할 이름 → 마지막에 id 끝자리) — UUID 노출 방지 */
-        var label = it.private_ip || it.instance_name || shortId(it.instance_id);
+        /* 범례·툴팁은 역할 이름 우선(없으면 IP → 마지막에 id 끝자리) — 카드 헤더와 일관 */
+        var label = it.instance_name || it.private_ip || shortId(it.instance_id);
         return { name: label, points: it.cpu_series, color: TS_COLORS[i % TS_COLORS.length] };
       });
     renderTsLine('hostCpu', 'host-cpu-chart', series.length ? series : null,
@@ -1689,6 +1691,9 @@ function setChatBusy(busy) {
   btn.classList.toggle('busy', busy);
 }
 
+/* SSE 스트리밍 채팅: POST /api/chat/stream 의 'data: {json}' 프레임을 읽어
+ * 봇 말풍선에 답변 조각을 누적(textContent — XSS 안전). 첫 조각 도착 시 typing 제거.
+ * 스트림 미지원/실패 시 비스트리밍 /api/chat 으로 폴백. */
 function sendChat(question) {
   if (chatBusy) return;
   var input = document.getElementById('chat-input');
@@ -1707,6 +1712,81 @@ function sendChat(question) {
   setChatBusy(true);
   var typing = appendChatTyping();
 
+  var botMsg = null, botTextEl = null, acc = '', finished = false, errored = false;
+
+  function removeTyping() {
+    if (typing && typing.parentNode) { typing.parentNode.removeChild(typing); typing = null; }
+  }
+  function ensureBot() {                            /* 첫 조각 도착 시 봇 말풍선 생성 */
+    if (botMsg) return;
+    removeTyping();
+    botMsg = appendChatMsg('bot', '');
+    botTextEl = botMsg.querySelector('.chat-text');
+  }
+  function pushText(t) {
+    ensureBot();
+    acc += t;
+    botTextEl.textContent = acc;                   /* XSS: 조각 → textContent */
+    chatScrollToBottom();
+  }
+  function fail(msg) {                              /* 받은 내용 있으면 유지, 없으면 에러 말풍선 1개만 */
+    removeTyping();
+    if (!acc && !errored) appendChatMsg('error', msg);
+    errored = true;
+  }
+  function done() {
+    if (finished) return;
+    finished = true;
+    removeTyping();
+    if (!acc && !botMsg && !errored) appendChatMsg('error', '응답을 받지 못했습니다');
+    setChatBusy(false);
+    input.focus();
+  }
+
+  if (!window.fetch || !window.ReadableStream) {   /* 구형 브라우저 → 폴백 */
+    sendChatFallback(q, removeTyping, function () { done(); });
+    return;
+  }
+
+  fetch('/api/chat/stream', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question: q })
+  }).then(function (r) {
+    if (!r.ok || !r.body) throw new Error('HTTP ' + r.status);
+    var reader = r.body.getReader();
+    var decoder = new TextDecoder('utf-8');
+    var buf = '';
+    function pump() {
+      return reader.read().then(function (res) {
+        if (res.done) { done(); return; }
+        buf += decoder.decode(res.value, { stream: true });
+        var idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {  /* SSE 프레임 경계 */
+          var frame = buf.slice(0, idx).trim();
+          buf = buf.slice(idx + 2);
+          if (frame.indexOf('data:') !== 0) continue;
+          var data = frame.slice(5).trim();
+          if (data === '[DONE]') { done(); return; }
+          try {
+            var j = JSON.parse(data);
+            if (j.error) fail(j.error);
+            else if (j.text) pushText(j.text);
+          } catch (e) { /* 부분 프레임/파싱 실패 무시 */ }
+        }
+        return pump();
+      });
+    }
+    return pump();
+  }).catch(function (e) {
+    /* 스트림 연결 자체 실패 → 비스트리밍으로 폴백(이미 일부 받았으면 그대로 종료) */
+    if (acc) { done(); return; }
+    sendChatFallback(q, removeTyping, function () { done(); });
+  });
+}
+
+/* 비스트리밍 폴백: 기존 /api/chat(한 번에 answer) */
+function sendChatFallback(q, removeTyping, onDone) {
   fetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1714,22 +1794,15 @@ function sendChat(question) {
   }).then(function (r) {
     return r.json().then(function (j) { return { ok: r.ok, body: j }; });
   }).then(function (res) {
-    if (typing.parentNode) typing.parentNode.removeChild(typing);
+    if (removeTyping) removeTyping();
     var b = res.body || {};
-    if (b.error) {
-      appendChatMsg('error', b.error);
-    } else if (b.answer !== undefined && b.answer !== null) {
-      appendChatMsg('bot', b.answer);              /* XSS: answer → textContent, white-space:pre-wrap */
-    } else {
-      appendChatMsg('error', '응답을 이해하지 못했습니다');
-    }
+    if (b.error) appendChatMsg('error', b.error);
+    else if (b.answer !== undefined && b.answer !== null) appendChatMsg('bot', b.answer);
+    else appendChatMsg('error', '응답을 이해하지 못했습니다');
   }).catch(function (e) {
-    if (typing.parentNode) typing.parentNode.removeChild(typing);
+    if (removeTyping) removeTyping();
     appendChatMsg('error', '요청 실패: ' + e.message);
-  }).then(function () {
-    setChatBusy(false);
-    input.focus();
-  });
+  }).then(function () { if (onDone) onDone(); });
 }
 
 function bindChat() {
@@ -1846,14 +1919,15 @@ function _renderTasksByProject(tasks, wrapId) {
 function loadWeekly() {
   var card = document.getElementById('panel-weekly'); if (!card) return;
   return _doorayFetch(card, function (d) {
-    var gen = document.getElementById('weekly-gen');
-    var pw = document.getElementById('weekly-preview-wrap');
-    if (gen) gen.hidden = false;
-    if (pw) pw.hidden = true;                       /* 진입 시 항상 생성 전 상태 */
     document.querySelectorAll('#panel-weekly .js-layout-edit').forEach(function (b) { b.hidden = !d; });
-    if (!d) return;
+    if (!d) {                                        /* 데이터 없으면 생성 전(빈) 상태 유지 */
+      var gen0 = document.getElementById('weekly-gen'); if (gen0) gen0.hidden = false;
+      var pw0 = document.getElementById('weekly-preview-wrap'); if (pw0) pw0.hidden = true;
+      return;
+    }
     setText('weekly-week', _weeklyMeta.week);
     _doorayNote('weekly-note', d, 'weekly');
+    _generateWeekly();                               /* 진입 시 자동으로 미리 생성 → 새로고침마다 최신 데이터로 갱신 */
   });
 }
 
@@ -1915,8 +1989,7 @@ function _appendReportBodyByProject(root, tasks) {
     var seen = {};
     byTag[tag].forEach(function (t) {
       var s = (t.subject || '').trim(); if (!s || seen[s]) return; seen[s] = 1;
-      root.appendChild(_wkLine('wk-task', 'o ' + s));
-      _bodyItems(t.body).forEach(function (ln) { root.appendChild(_wkLine('wk-sub', ln)); });
+      root.appendChild(_wkLine('wk-task', 'o ' + s));   /* 제목만 표시(요약·펼치기 없음) */
     });
   });
 }
@@ -2005,9 +2078,9 @@ function _calTodayYM() { var n = new Date(Date.now() + 9 * 3600 * 1000); return 
 /* 일정 카테고리 — 근태(연차·반차·외근) vs 업무를 색으로 구분 */
 var CAL_CATS = {
   work:   { key: 'work',   label: '업무',      line: '#3c5a8c', bg: '#ecf0f6' },
-  leave:  { key: 'leave',  label: '연차·휴가', line: '#c5473e', bg: '#f7e9e7' },
-  amhalf: { key: 'amhalf', label: '오전반차',  line: '#be8636', bg: '#fbf2e3' },
-  pmhalf: { key: 'pmhalf', label: '오후반차',  line: '#6e6597', bg: '#efe9f3' }
+  leave:  { key: 'leave',  label: '연차·휴가', line: '#e0483b', bg: '#fdecea' },
+  amhalf: { key: 'amhalf', label: '오전반차',  line: '#e8902a', bg: '#fcf1e0' },
+  pmhalf: { key: 'pmhalf', label: '오후반차',  line: '#8257d6', bg: '#efe9fb' }
 };
 function _calCat(e) {
   var t = e.title || '';

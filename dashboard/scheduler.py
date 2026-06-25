@@ -10,7 +10,7 @@ import sys
 import time
 import threading
 
-from dashboard import config, storage
+from dashboard import config, storage, alerting
 from dashboard.collectors import alarms, uptime, traffic, db, ec2, cloudfront, dooray, gcal
 
 TICK = 60          # 루프 점검 주기(초)
@@ -32,6 +32,8 @@ class Scheduler:
             ("cdn", config.CDN_INTERVAL, cloudfront.run),
             ("dooray", config.DOORAY_INTERVAL, dooray.run),
             ("gcal", config.GCAL_INTERVAL, gcal.run),
+            # 수집기들 뒤에 둬 같은 tick 에서 최신 스냅샷으로 신호를 평가·푸시한다.
+            ("alerts", config.ALERT_INTERVAL, alerting.run),
         ]
         self.stop_event = threading.Event()
         self._thread = None
