@@ -25,6 +25,7 @@ from dashboard import config
 COOKIE_NAME = "auth"
 _PBKDF2_ITERATIONS = 240000      # PBKDF2-HMAC-SHA256 반복 수(개방-폐쇄: 코드에 내장)
 _PBKDF2_ALGO = "pbkdf2_sha256"   # 해시 문자열 식별자
+_RATE_MAX_ENTRIES = 4096         # 레이트리미터 _state 메모리 상한(초과 시 정리)
 
 
 # ── base64url(JWT 표준 — 패딩 제거/복원) ──────────────────────────────
@@ -113,11 +114,12 @@ def verify_password(password, stored):
 # ── 자격증명 인증 ─────────────────────────────────────────────────────
 def authenticate(username, password):
     """아이디/비밀번호를 검증한다. 둘 다 일치하면 True.
-    분기 단축 없이 username/password 비교를 항상 모두 수행해 응답 시간을 평탄화한다
-    (비교 경로 일관성 목적)."""
-    u_ok = hmac.compare_digest(username or "", config.AUTH_USERNAME)
-    p_ok = verify_password(password or "", config.AUTH_PASSWORD_HASH)
-    return u_ok and p_ok
+    아이디가 틀리면 PBKDF2(고비용)를 실행하지 않고 즉시 실패시킨다 —
+    단일 공용 계정이라 username 타이밍 노출이 무의미하고, 잘못된 아이디 스팸으로
+    인한 CPU 고갈(DoS)을 막는 것이 더 중요하다."""
+    if not hmac.compare_digest(username or "", config.AUTH_USERNAME):
+        return False
+    return verify_password(password or "", config.AUTH_PASSWORD_HASH)
 
 
 def _ttl_seconds():
@@ -201,10 +203,19 @@ class LoginRateLimiter:
         """실패 1회를 기록한다. 임계 초과 시 잠금을 건다."""
         now = time.time()
         with self._lock:
+            if ip not in self._state and len(self._state) >= _RATE_MAX_ENTRIES:
+                self._prune(now)   # 메모리 상한 보호(무작위 IP 스팸으로 무한 증식 방지)
             entry = self._state.setdefault(ip, {"count": 0, "lock_until": 0})
             entry["count"] += 1
             if entry["count"] >= config.AUTH_MAX_ATTEMPTS:
                 entry["lock_until"] = now + config.AUTH_LOCKOUT_MINUTES * 60
+
+    def _prune(self, now):
+        """메모리 상한 초과 시 활성 잠금(lock_until>now)만 남기고
+        만료 잠금·미잠금 카운트 엔트리를 제거한다(_lock 보유 상태에서 호출)."""
+        drop = [k for k, e in self._state.items() if e.get("lock_until", 0) <= now]
+        for k in drop:
+            self._state.pop(k, None)
 
     def reset(self, ip):
         """성공 시 해당 IP 카운터를 비운다."""
@@ -227,6 +238,9 @@ def ensure_configured():
         msg = "AUTH_USERNAME 또는 AUTH_PASSWORD_HASH가 설정되지 않았습니다. 서버를 시작할 수 없습니다"
         print("[auth] FATAL: " + msg, file=sys.stderr)
         raise RuntimeError(msg)
+    if len(config.AUTH_SECRET) < 32:
+        print("[auth] WARNING: AUTH_SECRET가 32자 미만입니다. "
+              "'python -m dashboard.auth gen-secret'(64자)으로 재생성을 권장합니다.", file=sys.stderr)
     if not config.AUTH_COOKIE_SECURE:
         print("[auth] WARNING: AUTH_COOKIE_SECURE=false — 운영(HTTPS) 배포 시 .env 에 "
               "AUTH_COOKIE_SECURE=true 를 설정하세요(쿠키 평문 전송 위험).", file=sys.stderr)

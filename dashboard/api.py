@@ -650,7 +650,8 @@ def api_auth_login(body: LoginRequest, request: Request):
     if locked > 0:
         mins = (locked + 59) // 60
         return JSONResponse(
-            {"error": "%d분 후 다시 시도해 주세요" % mins}, status_code=429)
+            {"error": "로그인 시도가 너무 많습니다. %d분 후 다시 시도해 주세요" % mins},
+            status_code=429)
     if not auth.authenticate(body.username, body.password):
         auth._rate_limiter.record_failure(ip)
         return JSONResponse(
