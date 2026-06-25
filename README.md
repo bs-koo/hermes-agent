@@ -3,7 +3,7 @@
 > AWS 운영 모니터링 · Dooray 업무 · 본부 일정을 **한 화면**에서 보고, **AI에게 물어보는** 사내 운영 비서.
 > 이상 징후가 생기면 **Google Chat으로 먼저 알려줍니다.**
 
-`gx-buddy`는 GX 사업부의 운영 상태(AWS)와 업무(Dooray)·일정(Google Calendar)을 하나의 대시보드에 모으고, Gemini 기반 채팅으로 *"지금 경보 있어?"* 같은 질문에 **수집된 데이터를 근거로** 답하는 운영 비서입니다. 화면 타이틀은 **GX 업무 비서**, 리포지토리 식별자는 `hermes_agent` 입니다.
+`gx-buddy`는 GX 사업부의 운영 상태(AWS)와 업무(Dooray)·일정(Google Calendar)을 하나의 대시보드에 모으고, Gemini 기반 채팅으로 *"지금 경보 있어?"* 같은 질문에 **수집된 데이터를 근거로** 답하는 운영 비서입니다. 화면 타이틀은 **GX 업무 비서**, GitHub 리포지토리는 `gx-buddy`(로컬 작업 폴더는 `hermes_agent`)입니다.
 
 ![gx-buddy 대시보드](docs/preview.png)
 
