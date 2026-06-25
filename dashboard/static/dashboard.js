@@ -314,9 +314,24 @@ function renderTsLine(key, canvasId, series, opts) {
   });
 }
 
+/* ── 인증 만료 처리 ─────────────────────────────────────
+ * 401 수신 시 로그인 화면으로 보낸다. 여러 fetch 가 동시에 401 을 받아도
+ * __loggingOut 가드로 리다이렉트는 한 번만 실행한다(중복 이동 방지). */
+function redirectToLogin(reason) {
+  if (window.__loggingOut) return;
+  window.__loggingOut = true;
+  location.replace('/login' + (reason === 'expired' ? '?expired=1' : ''));
+}
+/* 응답이 401 이면 로그인으로 보내고 true 반환(호출부는 이후 처리를 중단). */
+function handle401(resp) {
+  if (resp && resp.status === 401) { redirectToLogin('expired'); return true; }
+  return false;
+}
+
 /* fetch JSON 헬퍼(HTTP 에러를 throw) */
 function fetchJson(url) {
   return fetch(url).then(function (r) {
+    if (handle401(r)) throw new Error('UNAUTHORIZED');
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return r.json();
   });
@@ -1754,6 +1769,7 @@ function sendChat(question) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question: q })
   }).then(function (r) {
+    if (handle401(r)) return;
     if (!r.ok || !r.body) throw new Error('HTTP ' + r.status);
     var reader = r.body.getReader();
     var decoder = new TextDecoder('utf-8');
@@ -1793,8 +1809,10 @@ function sendChatFallback(q, removeTyping, onDone) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question: q })
   }).then(function (r) {
+    if (handle401(r)) return null;
     return r.json().then(function (j) { return { ok: r.ok, body: j }; });
   }).then(function (res) {
+    if (!res) return;   /* 401 → 로그인 이동 중 */
     if (removeTyping) removeTyping();
     var b = res.body || {};
     if (b.error) appendChatMsg('error', b.error);
@@ -2536,7 +2554,8 @@ function _saveLayout() {
   fetch('/api/dooray/layout', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ layout: clean })
-  }).then(function (r) { return r.json(); }).then(function (res) {
+  }).then(function (r) { if (handle401(r)) return null; return r.json(); }).then(function (res) {
+    if (!res) return;   /* 401 → 로그인 이동 중 */
     if (res && res.ok) {
       _weeklyLayout = res.layout || clean;
       if (msg) msg.textContent = '저장됨 ✓';
@@ -2870,9 +2889,14 @@ function manualRefresh() {
   /* 업무 현황·주간 보고는 Dooray 에서 실제 재수집(스냅샷이 하루 1회라 화면만 갱신되던 문제 해결).
      재수집은 수 초~수십 초 → 완료 후 뷰를 재조회한다. 실패해도 뷰 재조회는 진행. */
   var pre = (r === 'tasks' || r === 'weekly')
-    ? fetch('/api/dooray/refresh', { method: 'POST' }).catch(function () {})
+    ? fetch('/api/dooray/refresh', { method: 'POST', credentials: 'same-origin' })
+        .then(function (resp) { handle401(resp); })   /* 만료 시 로그인 이동(영구 무반응 방지) */
+        .catch(function () {})
     : Promise.resolve();
-  var done = pre.then(function () { return loadRoute(r); });  /* 활성 뷰 재조회(개요/인사이트는 AI 재생성 포함) */
+  var done = pre.then(function () {
+    if (window.__loggingOut) return;   /* 401 리다이렉트 중이면 추가 로드 생략 */
+    return loadRoute(r);               /* 활성 뷰 재조회(개요/인사이트는 AI 재생성 포함) */
+  });
   var minSpin = new Promise(function (res) { setTimeout(res, 500); });   /* 최소 회전(깜빡임 방지) */
   Promise.all([Promise.resolve(done).catch(function () {}), minSpin]).then(function () {
     if (btn) { btn.classList.remove('spinning'); btn.disabled = false; }
@@ -2884,6 +2908,21 @@ function bindRefresh() {
   var btn = document.getElementById('refresh-btn');
   if (!btn) return;
   btn.addEventListener('click', manualRefresh);
+}
+
+/* ── 로그아웃 ───────────────────────────────────────────
+ * 쿠키를 서버에서 만료시키고 로그인 화면으로 이동. 요청 성공/실패와 무관하게
+ * (이미 만료됐을 수도 있으므로) 항상 /login 으로 보낸다. */
+function bindLogout() {
+  var btn = document.getElementById('logout-btn');
+  if (!btn) return;
+  btn.addEventListener('click', function () {
+    btn.disabled = true;
+    window.__loggingOut = true;   /* 진행 중 401 리다이렉트 중복 방지 */
+    fetch('/api/auth/logout', { method: 'POST' })
+      .then(function () { location.replace('/login'); })
+      .catch(function () { location.replace('/login'); });
+  });
 }
 
 /* ── 기간 버튼 바인딩 ──────────────────────────────────── */
@@ -2916,6 +2955,7 @@ function init() {
   bindPeriodButtons();
   bindRouteLinks();          /* KPI 타일·미니카드 → 라우트 이동 */
   bindRefresh();
+  bindLogout();              /* 로그아웃 버튼 → 쿠키 만료 + /login 이동 */
   bindChat();
   bindHostModal();           /* EC2 상세 모달 닫기/배경/ESC */
   bindDbModal();             /* RDS 상세 모달 닫기/배경/ESC */
