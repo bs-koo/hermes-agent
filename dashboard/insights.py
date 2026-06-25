@@ -15,9 +15,16 @@ CREDIT_LOW = 20.0        # t계열 CPU 크레딧 소진 경고
 RDS_STORAGE_CRIT_GB = 5.0
 RDS_STORAGE_WARN_GB = 15.0
 RDS_CONN_WARN = 80.0     # 연결수(절대) 경고 임계(클래스별 max 미상 → 보수적 절대값)
-CDN_5XX_CRIT = 1.0       # CDN 5xx 에러율(%) critical
-CDN_4XX_WARN = 5.0       # CDN 4xx 에러율(%) warning
-CDN_TOTAL_WARN = 5.0     # CDN 전체 에러율(%) warning
+# CDN 5xx(서버에러율) — 재계층 + 절대량 floor + 히스테리시스(깜빡임 방지).
+# 1% 단독은 일시적 블립이라 위험이 아니다: 2~5%=주의, 5%+=위험, 그리고 24h 5xx 절대
+# 건수가 충분할 때만(저볼륨 % 노이즈 무시). 한 번 뜬 신호는 1.5% 미만으로 내려갈
+# 때까지 유지해 경계선에서의 감지↔정상화 반복(깜빡임)을 막는다.
+CDN_5XX_WARN = 2.0       # 주의: 5xx > 2% (floor 충족 시)
+CDN_5XX_CRIT = 5.0       # 위험: 5xx > 5%
+CDN_5XX_CLEAR = 1.5      # 히스테리시스 해제: 활성 알림은 5xx < 1.5% 가 될 때까지 유지
+CDN_5XX_MIN = 30         # 절대량 floor: 최근 24h 5xx 절대 건수(이 미만이면 신호 없음)
+CDN_4XX_WARN = 5.0       # CDN 4xx 에러율(%) warning(현재 인사이트 미사용)
+CDN_TOTAL_WARN = 5.0     # CDN 전체 에러율(%) warning(현재 인사이트 미사용)
 EB_HEALTH_WARN = 15.0    # ElasticBeanstalk EnvironmentHealth(0 OK ~ 25 Severe)
 EB_HEALTH_CRIT = 20.0
 GB = 1024 ** 3
@@ -179,30 +186,56 @@ def db_findings():
     return _stamp(out, _collected(snap))
 
 
+def _cdn_alert_active(did):
+    """이 배포의 CDN 5xx 신호가 현재 '발송됨(활성)' 상태인지 — 히스테리시스용.
+    alert_state(Chat 발송 추적)에 area=CDN 이고 제목에 did 가 든 항목이 있으면 True.
+    조회 실패는 비활성(False)으로 간주해 인사이트가 깨지지 않게 한다."""
+    try:
+        for a in storage.get_active_alerts():
+            if a.get("area") == "CDN" and did and did in (a.get("title") or ""):
+                return True
+    except Exception:  # noqa: BLE001 — 상태 조회 실패는 비활성 처리
+        return False
+    return False
+
+
 def cdn_findings():
-    """CloudFront: 5xx 서버에러율 / 4xx 클라이언트에러율 상승."""
+    """CloudFront 5xx 서버에러율 상승. 재계층(주의 2~5% / 위험 5%+) + 절대량 floor
+    (24h 5xx ≥ CDN_5XX_MIN) + 히스테리시스(활성 알림은 1.5% 미만으로 내려갈 때까지 유지).
+    1% 경계 깜빡임을 없애고, 일시적 저볼륨 블립을 위험으로 올리지 않는다."""
     snap = storage.get_cdn()
     if not snap:
         return []
     out = []
     for d in (snap["payload"].get("distributions") or []):
         did = d.get("dist_id") or "CDN"
-        e5, e4 = d.get("err_5xx"), d.get("err_4xx")
-        if e5 is not None and e5 > CDN_5XX_CRIT:
-            kind = _cf_dominant_5xx(d)
-            mean = ("CDN이 사용자에게 서버 오류(5xx)를 평소보다 많이 응답하고 있어요. "
-                    "일부 사용자가 페이지·API 오류를 겪고 있다는 뜻이에요.")
-            ev = f"5xx {e5:.2f}% > {CDN_5XX_CRIT:.0f}%"
-            if kind:
-                mean += f" 주로 {kind} 유형이에요."
-                ev += f" · 주 유형 {kind.split('(')[0].strip()}"
-            act = ["CDN 탭에서 어떤 배포·시간대에 5xx가 몰리는지 확인하세요",
-                   "원본 서버(EB/오리진) 상태와 최근 배포를 점검하세요",
-                   "원본이 원인이면 서버 로그와 헬스체크를 확인하세요"]
-            if not kind:
-                act.append("5xx 유형(502/503/504)이 안 보이면 CloudFront 추가 지표를 활성화하세요")
-            out.append(_f("critical", "CDN", f"{did} 5xx 서버에러율 상승",
-                          ev, meaning=mean, action=act, route="cdn"))
+        e5 = d.get("err_5xx")
+        if e5 is None:
+            continue
+        # 절대량 floor: 24h 5xx 절대 건수(요청수 × 비율)가 충분할 때만 — 저볼륨 % 노이즈 무시.
+        req = d.get("requests")
+        abs5 = (req * e5 / 100.0) if req is not None else None
+        if abs5 is None or abs5 < CDN_5XX_MIN:
+            continue
+        # 히스테리시스: 이미 떠 있는 신호는 해제 임계(1.5%)까지 유지, 새 신호는 주의 임계(2%) 초과부터.
+        fire_at = CDN_5XX_CLEAR if _cdn_alert_active(did) else CDN_5XX_WARN
+        if e5 <= fire_at:
+            continue
+        sev = "critical" if e5 > CDN_5XX_CRIT else "warning"
+        kind = _cf_dominant_5xx(d)
+        mean = ("CDN이 사용자에게 서버 오류(5xx)를 평소보다 많이 응답하고 있어요. "
+                "일부 사용자가 페이지·API 오류를 겪고 있다는 뜻이에요.")
+        ev = f"5xx {e5:.2f}% (24h {int(abs5)}건)"
+        if kind:
+            mean += f" 주로 {kind} 유형이에요."
+            ev += f" · 주 유형 {kind.split('(')[0].strip()}"
+        act = ["CDN 탭에서 어떤 배포·시간대에 5xx가 몰리는지 확인하세요",
+               "원본 서버(EB/오리진) 상태와 최근 배포를 점검하세요",
+               "원본이 원인이면 서버 로그와 헬스체크를 확인하세요"]
+        if not kind:
+            act.append("5xx 유형(502/503/504)이 안 보이면 CloudFront 추가 지표를 활성화하세요")
+        out.append(_f(sev, "CDN", f"{did} 5xx 서버에러율 상승",
+                      ev, meaning=mean, action=act, route="cdn"))
         # 4xx(클라이언트 오류)는 흔한 노이즈 — 운영 판단에 불필요해 인사이트에서 제외(5xx만 신호화)
     return _stamp(out, _collected(snap))
 
